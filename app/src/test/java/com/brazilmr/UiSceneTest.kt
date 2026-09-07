@@ -96,7 +96,7 @@ class UiSceneTest {
         assertTrue(restored.windows.windows.none { it.content==WindowContent.LUA })
         restored.sessionPrefs.edit().remove("draft.source").remove("draft.type").remove("draft.capabilities").commit()
     }
-    private class Actions : UiActions {
+    class Actions : UiActions {
         override fun requestCamera()=Unit
         override fun updateSettings(settings: XrSettings)=Unit
         override fun toggleMode()=Unit

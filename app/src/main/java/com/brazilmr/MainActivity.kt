@@ -27,8 +27,7 @@ import com.brazilmr.core.input.*
 import com.brazilmr.core.performance.*
 import com.brazilmr.core.permission.*
 import com.brazilmr.core.session.EnvironmentMode
-import com.brazilmr.core.spatial.CameraCoordinates
-import com.brazilmr.core.spatial.SpatialProjection
+import com.brazilmr.core.spatial.*
 import com.brazilmr.core.tracking.*
 import com.brazilmr.core.window.*
 import com.brazilmr.platform.*
@@ -42,6 +41,18 @@ import kotlin.math.*
 class MainActivity : ComponentActivity(), UiActions {
     private lateinit var state: PlatformState
     private lateinit var scene: XrUiScene
+    private lateinit var floating: SpatialUiScene
+    private lateinit var phoneInput: WorkspaceInputView
+    private lateinit var spatialInput: SpatialInputView
+    private lateinit var phoneExit: Button
+    private lateinit var preparation: LinearLayout
+    private val spatialSnapshot=PanelSnapshot()
+    private val dwell=DwellSelector()
+    private val gazeRay=SpatialRay()
+    private var gazeActive=false
+    private var gazeX=.5f;private var gazeY=.5f
+    private var recoverySince=0L
+    private var savedHeadsetSbs=true
     private lateinit var glView: GLSurfaceView
     private lateinit var renderer: SBSRenderer
     private lateinit var hands: CameraHandTrackingManager
@@ -80,6 +91,7 @@ class MainActivity : ComponentActivity(), UiActions {
     private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         state.cameraGranted = granted
         state.notice(if(granted) "Câmera autorizada" else "Câmera não autorizada", if(granted) "Passthrough e tracking são processados localmente." else "A plataforma continua disponível por toque, sem câmera.")
+        if(granted)finishPreparation()
         configureCamera(true)
     }
     private val capturePermission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -114,14 +126,15 @@ class MainActivity : ComponentActivity(), UiActions {
                 }
                 if(state.windows.revision!=lastWindowRevision) { lua.windowStatesChanged();lastWindowRevision=state.windows.revision }
                 if (!nativeDialog && now-lastLuaTick >= 100) { lua.tick(now/1000.0); lastLuaTick = now }
-                if (state.dirty) {
-                    val slot = textureExchange.beginWrite()
-                    if (slot >= 0) {
-                        try { scene.draw(uiCanvases[slot]); textureExchange.publish(slot); state.dirty = false }
-                        catch (error: Exception) { textureExchange.cancelWrite(slot); throw error }
-                    }
-                }
+                if(!state.phoneTools && !nativeDialog && preparation.visibility!=View.VISIBLE) updateGaze(now)
                 fillRenderFrame(budget)
+                if(state.phoneTools) {
+                    if(!::uiCanvases.isInitialized)uiCanvases=Array(2){Canvas(textureExchange.bitmaps[it])}
+                    if(state.dirty) {
+                        val slot=textureExchange.beginWrite()
+                        if(slot>=0) { try { scene.draw(uiCanvases[slot]);textureExchange.publish(slot);state.dirty=false } catch(e: Exception){textureExchange.cancelWrite(slot);throw e} }
+                    }
+                } else { floating.prepare(renderFrame);state.dirty=false }
                 renderer.publish(renderFrame); glView.requestRender()
             } catch (error: Exception) { state.log("Frame interrompido: ${error.message}"); input.reset(now) }
             previousUiMillis = (System.nanoTime()-begin)/1_000_000f
@@ -147,10 +160,10 @@ class MainActivity : ComponentActivity(), UiActions {
         } })
         glView = GLSurfaceView(this).apply { setEGLContextClientVersion(2); preserveEGLContextOnPause=true }
         textureExchange = UiTextureExchange()
-        uiCanvases = Array(2) { Canvas(textureExchange.bitmaps[it]) }
         appBridge = AndroidAppBridge(this)
         lua = AndroidLuaController(state,::modeChanged,::closeWindow)
         scene = XrUiScene(state,this)
+        floating=SpatialUiScene(state,this)
         input = InputSystem(InputSink(::dispatchPointer))
         renderer = SBSRenderer(glView,textureExchange,ar,{
             if (!destroyed) { graphicsReady=true;state.dirty=true;configureCamera(true) }
@@ -169,14 +182,27 @@ class MainActivity : ComponentActivity(), UiActions {
             state.cameraActive=active;state.dirty=true
             if(!active && detail != "Câmera pausada") state.notice("Câmera",detail)
         }
-        val overlay = WorkspaceInputView(this,scene,renderer::readProjection) { action,x,y,time ->
+        camera.onLens=renderer::setCameraTangents
+        phoneInput = WorkspaceInputView(this,scene,renderer::readProjection) { action,x,y,time ->
             if(!nativeDialog) {
                 if(!state.session.uiVisible && action == PointerAction.DOWN) { state.session.setUiVisible(true);recenter();input.reset(time) }
                 else input.touch(action,x,y,time)
             }
         }
+        spatialInput=SpatialInputView(this,floating,renderer::readPanels) { action,x,y,time ->
+            if(!nativeDialog && preparation.visibility!=View.VISIBLE) {
+                if(!state.session.uiVisible && action==PointerAction.DOWN) { state.session.setUiVisible(true);recenter();input.reset(time) }
+                else input.touch(action,x,y,time)
+            }
+        }
+        phoneInput.visibility=View.GONE
+        phoneExit=Button(this).apply { text="Voltar ao MR · VR Box";visibility=View.GONE;setOnClickListener { exitPhoneTools() } }
+        preparation=createPreparation()
         val root = FrameLayout(this).apply {
-            addView(glView,FrameLayout.LayoutParams(-1,-1));addView(overlay,FrameLayout.LayoutParams(-1,-1))
+            addView(glView,FrameLayout.LayoutParams(-1,-1));addView(phoneInput,FrameLayout.LayoutParams(-1,-1))
+            addView(spatialInput,FrameLayout.LayoutParams(-1,-1))
+            addView(phoneExit,FrameLayout.LayoutParams(-2,-2,Gravity.TOP or Gravity.END))
+            addView(preparation,FrameLayout.LayoutParams(-1,-1))
         }
         setContentView(root)
         WindowInsetsControllerCompat(window,root).apply { hide(WindowInsetsCompat.Type.systemBars());systemBarsBehavior=WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE }
@@ -199,6 +225,12 @@ class MainActivity : ComponentActivity(), UiActions {
         }
         onBackPressedDispatcher.addCallback(this,object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                if(!state.phoneTools && preparation.visibility!=View.VISIBLE) {
+                    if(floating.menu!=SpatialMenu.CLOSED)floating.openMenu(SpatialMenu.CLOSED)
+                    else { state.session.setUiVisible(true);recenter() }
+                    return
+                }
+                if(state.phoneTools) { exitPhoneTools();return }
                 when {
                     !state.session.uiVisible -> { state.session.setUiVisible(true);recenter() }
                     state.quickSettings -> { state.quickSettings=false;state.dirty=true }
@@ -220,11 +252,14 @@ class MainActivity : ComponentActivity(), UiActions {
         Choreographer.getInstance().removeFrameCallback(frameCallback);Choreographer.getInstance().postFrameCallback(frameCallback)
         configureCamera(true)
     }
-    override fun onPause() {
+    override fun onPause() { super.onPause() }
+    // On a secondary display another Activity can be resumed while this XR Activity remains visible.
+    // Stop on STOP, not PAUSE, or launching an Android window would turn off the headset camera.
+    override fun onStop() {
         resumed=false;Choreographer.getInstance().removeFrameCallback(frameCallback)
         input.reset(System.nanoTime()/1_000_000);state.gestures.reset();hands.stop();camera.stop();cameraKey=""
         head.close();thermal.close();glView.onPause();ar.close()
-        super.onPause()
+        floating.cancel();super.onStop()
     }
     override fun onDestroy() {
         destroyed=true;CaptureState.onChanged=null
@@ -275,6 +310,23 @@ class MainActivity : ComponentActivity(), UiActions {
     }
     private fun dispatchPointer(event: PointerEvent) {
         if(nativeDialog) return
+        if(!state.phoneTools) {
+            renderer.readPanels(spatialSnapshot)
+            val p=spatialSnapshot.projection
+            val physical=event.source==InputSource.TOUCH || event.source==InputSource.ACCESSIBILITY
+            val eye=if(physical && p.sbs) (if(event.x>=.5f)1 else 0) else -1
+            var x=event.x;var y=event.y
+            if(physical && p.sbs) {
+                if(!LensMapping.outputToView(x*2-eye,y,eye,p.lensShift,p.lensVertical,p.lensDistortion,uiCoordinates)) {
+                    if(event.action==PointerAction.CANCEL || event.action==PointerAction.UP)floating.cancel()
+                    input.hovered=false;return
+                }
+                x=uiCoordinates[0];y=uiCoordinates[1]
+            }
+            floating.pointer(event.action,x,y,eye,event.source,event.timeMillis,spatialSnapshot)
+            input.hovered=floating.hovered?.kind!=HitKind.BLOCK && floating.hovered!=null
+            return
+        }
         renderer.readProjection(inputProjection)
         val eye = if(inputProjection.sbs && event.source != InputSource.HAND && event.x >= .5f) 1 else 0
         val x = if(inputProjection.sbs && event.source != InputSource.HAND) event.x*2-eye else event.x
@@ -289,7 +341,11 @@ class MainActivity : ComponentActivity(), UiActions {
     }
     private fun fillRenderFrame(budget: RenderBudget) {
         val s=state.settings;val p=renderFrame.projection
-        p.sbs=s.sbs;p.spatial=s.sbs || state.session.mode==EnvironmentMode.VR
+        renderFrame.immersive=!state.phoneTools
+        p.sbs=if(state.phoneTools)false else s.sbs;p.spatial=!state.phoneTools
+        p.cameraAligned=!state.phoneTools && state.session.mode==EnvironmentMode.MR
+        p.focalX=0f;p.focalY=0f;p.opticalX=0f;p.opticalY=0f
+        p.lensShift=s.lensShift;p.lensVertical=s.lensVertical;p.lensDistortion=s.lensDistortion
         p.ipdMetres=s.ipdMm/1000;p.fovDegrees=s.fovDegrees;p.distance=s.uiDistance
         p.planeWidth=1.95f*s.uiScale;p.planeHeight=p.planeWidth/(16f/9f)
         p.centerX=s.uiOffsetX+state.session.uiAnchorX;p.centerY=s.uiOffsetY+state.session.uiAnchorY
@@ -304,7 +360,16 @@ class MainActivity : ComponentActivity(), UiActions {
             renderFrame.cursorVisible=uiCoordinates[0].isFinite() && uiCoordinates[1].isFinite()
             renderFrame.cursorX=uiCoordinates[0];renderFrame.cursorY=uiCoordinates[1];renderFrame.cursorState=input.cursorState.ordinal
         }
-        scene.fillExternalLayers(renderFrame)
+        if(state.phoneTools) scene.fillExternalLayers(renderFrame) else {
+            renderFrame.externalCount=0
+            renderFrame.cursorVisible=state.session.uiVisible && !nativeDialog && preparation.visibility!=View.VISIBLE && (gazeActive || input.cursorState!=CursorState.DISABLED)
+            if(renderFrame.cursorVisible) {
+                renderer.readPanels(spatialSnapshot)
+                floating.cast(spatialSnapshot,if(gazeActive)gazeX else input.cursorX,if(gazeActive)gazeY else input.cursorY,-1)
+                renderFrame.cursorWorldX=floating.cursorWorld[0];renderFrame.cursorWorldY=floating.cursorWorld[1];renderFrame.cursorWorldZ=floating.cursorWorld[2]
+            }
+            renderFrame.dwellProgress=if(gazeActive)dwell.progress else 0f
+        }
         renderFrame.objectCount=0
         val objects=state.scenario.objects
         for(index in objects.indices) {
@@ -328,12 +393,13 @@ class MainActivity : ComponentActivity(), UiActions {
     override fun toggleMode() { state.session.toggleMode();modeChanged() }
     private fun modeChanged() {
         if(state.session.mode==EnvironmentMode.VR && !state.settings.sbs) state.saveSettings(state.settings.copy(sbs=true))
-        input.reset(System.nanoTime()/1_000_000);head.recenter();ar.recenter()
+        input.reset(System.nanoTime()/1_000_000);dwell.reset();head.recenter();ar.recenter()
         state.notice("Ambiente ${state.session.mode}",if(state.session.mode==EnvironmentMode.VR) "SBS ativo. Use um headset compatível, ajuste o IPD e permaneça em um local seguro." else "Mixed Reality. Passthrough monocular; não substitui visão direta do ambiente.")
         lua.modeChanged(state.session.mode.name);configureCamera()
     }
     override fun recenter() {
-        head.recenter();ar.recenter();state.session.recenter()
+        head.recenter();ar.recenter();state.session.recenter();dwell.reset();gazeX=.5f;gazeY=.5f
+        if(::floating.isInitialized)floating.cancel()
         if(state.settings.uiOffsetX!=0f || state.settings.uiOffsetY!=0f) state.saveSettings(state.settings.copy(uiOffsetX=0f,uiOffsetY=0f))
         state.dirty=true
     }
@@ -342,17 +408,22 @@ class MainActivity : ComponentActivity(), UiActions {
         safeAction {
             val title=when(content) { WindowContent.NOTES -> "Notas do espaço";WindowContent.CLOCK -> "Agora";else -> "Diagnóstico XR" }
             val win=state.windows.open("brazilmr.${content.name.lowercase()}",title,content=content)
-            if(content==WindowContent.NOTES) win.text=state.sessionPrefs.getString("notes","Suas ideias, neste espaço.")!!
+            if(content==WindowContent.NOTES) win.text=state.sessionPrefs.getString("notes","Suas ideias, no ambiente.\n\nMova esta janela pela alça.\nUse Janelas para aproximar ou afastar.")!!
+            if(content==WindowContent.CLOCK)HeadsetLayout.clock(win.pose)
             state.navigate(Page.HOME)
         }
     }
     override fun openAndroid(app: LauncherApp) {
         @Suppress("DEPRECATION")
         var type=if(runCatching { packageManager.getApplicationInfo(app.packageName,0).category==ApplicationInfo.CATEGORY_GAME }.getOrDefault(false)) AppType.GAME else AppType.WINDOW
+        if(!state.phoneTools) { launchAndroidWindow(app,type);return }
         showDialog(AlertDialog.Builder(this).setTitle(app.label).setMessage(null)
             .setSingleChoiceItems(arrayOf("WINDOW · janela tradicional","GAME · barra mínima"),if(type==AppType.GAME)1 else 0) { _,which -> type=if(which==1)AppType.GAME else AppType.WINDOW }
             .setNeutralButton("Abrir no Android") { _,_ -> if(!appBridge.launchOutside(app)) state.notice("App indisponível",app.label) }
-            .setNegativeButton("Cancelar",null).setPositiveButton("Tentar janela XR") { _,_ -> safeAction {
+            .setNegativeButton("Cancelar",null).setPositiveButton("Tentar janela XR") { _,_ -> launchAndroidWindow(app,type) }.create())
+    }
+    private fun launchAndroidWindow(app: LauncherApp,type: AppType) {
+        safeAction {
                 val win=state.windows.open(app.packageName,app.label,type,WindowContent.ANDROID)
                 win.status="Solicitando display oficial. Alguns apps/OEMs não permitem essa execução."
                 state.navigate(Page.HOME)
@@ -365,7 +436,7 @@ class MainActivity : ComponentActivity(), UiActions {
                     }
                     state.dirty=true
                 }
-            } }.create())
+        }
     }
     override fun closeWindow(id: Int) {
         val win=state.windows.close(id)
@@ -377,7 +448,7 @@ class MainActivity : ComponentActivity(), UiActions {
     override fun windowResized(id: Int) {
         val win=state.windows.get(id) ?: return
         if(win.content==WindowContent.ANDROID && win.displayId>=0) {
-            val rect=XrUiScene.contentBounds(win);val w=(rect.width()*1.4f).toInt().coerceIn(320,1920);val h=(rect.height()*1.4f).toInt().coerceIn(240,1080)
+            val w=1280;val h=720
             renderer.resizeAppSurface(id,w,h);appBridge.resize(id,w,h);appBridge.setMinimized(id,false)
         }
         state.dirty=true
@@ -466,6 +537,67 @@ class MainActivity : ComponentActivity(), UiActions {
     override fun windowPointer(id: Int,x: Float,y: Float,action: String,source: String) { lua.pointer(id,x,y,action,source) }
     override fun externalGesture(id: Int,x0: Float,y0: Float,x1: Float,y1: Float,duration: Long) {
         appBridge.gesture(id,x0,y0,x1,y1,if(abs(x1-x0)+abs(y1-y0)<.01f) min(duration,600) else duration)?.let { state.notice("Input não encaminhado",it) }
+    }
+    private fun updateGaze(now: Long) {
+        renderer.readPanels(spatialSnapshot)
+        spatialSnapshot.projection.ray(.5f,.5f,-1,gazeRay)
+        if(!state.session.uiVisible) {
+            if(gazeRay.dy<-.58f) { if(recoverySince==0L)recoverySince=now;if(now-recoverySince>1500){state.session.setUiVisible(true);recenter();recoverySince=0L} }
+            else recoverySince=0L
+        }
+        gazeActive=state.settings.gazeEnabled && !state.hands.right.present && !input.touchOwns(now) && state.session.uiVisible
+        if(!gazeActive) { dwell.reset();return }
+        if(floating.updateGazeGrab(spatialSnapshot,now,gazeX,gazeY)) { dwell.reset();return }
+        input.gaze(PointerAction.MOVE,now,gazeX,gazeY)
+        val t=floating.hovered
+        val selectable=t!=null && t.kind!=HitKind.BLOCK && t.kind!=HitKind.EXTERNAL
+        if(dwell.update(if(selectable)t!!.id else -1,now)) {
+            input.gaze(PointerAction.DOWN,now,gazeX,gazeY);input.gaze(PointerAction.UP,now+1,gazeX,gazeY)
+        }
+    }
+    private fun headsetClick() {
+        if(floating.gazeGrabbed>=0) { floating.finishGazeGrab();return }
+        val now=System.nanoTime()/1_000_000
+        input.gaze(PointerAction.MOVE,now,gazeX,gazeY);input.gaze(PointerAction.DOWN,now,gazeX,gazeY);input.gaze(PointerAction.UP,now+1,gazeX,gazeY)
+        dwell.reset()
+    }
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if(::state.isInitialized && !state.phoneTools && ::preparation.isInitialized && preparation.visibility!=View.VISIBLE && !nativeDialog) {
+            when(event.keyCode) {
+                KeyEvent.KEYCODE_ENTER,KeyEvent.KEYCODE_DPAD_CENTER,KeyEvent.KEYCODE_BUTTON_A,KeyEvent.KEYCODE_SPACE,KeyEvent.KEYCODE_VOLUME_UP->{if(event.action==KeyEvent.ACTION_UP)headsetClick();return true}
+                KeyEvent.KEYCODE_VOLUME_DOWN->{if(event.action==KeyEvent.ACTION_UP){state.session.setUiVisible(true);recenter()};return true}
+                KeyEvent.KEYCODE_DPAD_LEFT,KeyEvent.KEYCODE_DPAD_RIGHT,KeyEvent.KEYCODE_DPAD_UP,KeyEvent.KEYCODE_DPAD_DOWN->{
+                    if(event.action==KeyEvent.ACTION_DOWN){when(event.keyCode){KeyEvent.KEYCODE_DPAD_LEFT->gazeX-=.035f;KeyEvent.KEYCODE_DPAD_RIGHT->gazeX+=.035f;KeyEvent.KEYCODE_DPAD_UP->gazeY-=.035f;else->gazeY+=.035f};gazeX=gazeX.coerceIn(.02f,.98f);gazeY=gazeY.coerceIn(.02f,.98f)};return true
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
+    private fun createPreparation(): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER;setPadding(48,20,48,20);setBackgroundColor(0xff100d18.toInt())
+            visibility=if(state.cameraGranted)View.GONE else View.VISIBLE
+            addView(TextView(this@MainActivity).apply { text="BRAZIL MR  /  VR BOX";textSize=25f;setTextColor(0xffc5a1ff.toInt());gravity=Gravity.CENTER })
+            addView(TextView(this@MainActivity).apply { text="Antes de colocar o telefone no headset:\n1. Autorize a câmera.  2. Deixe a câmera traseira descoberta.\n3. Encaixe o telefone em paisagem e ajuste as lentes.\nNo espaço: olhe para o dock abaixo e pare sobre um botão por 1 s.";textSize=17f;setTextColor(0xffeee8f5.toInt());gravity=Gravity.CENTER;setPadding(12,18,12,14) })
+            addView(Button(this@MainActivity).apply { text="Autorizar câmera e entrar em MR SBS";setOnClickListener { cameraPermission.launch(Manifest.permission.CAMERA) } })
+            addView(Button(this@MainActivity).apply { text="Entrar sem câmera (somente espaço virtual)";setOnClickListener { state.session.setMode(EnvironmentMode.VR);finishPreparation(EnvironmentMode.VR) } })
+        }
+    }
+    private fun finishPreparation(mode: EnvironmentMode=EnvironmentMode.MR) {
+        state.session.setMode(mode)
+        if(::preparation.isInitialized)preparation.visibility=View.GONE
+        state.saveSettings(state.settings.copy(sbs=true,passthrough=true,frontCamera=false))
+        head.recenter();ar.recenter();state.dirty=true;configureCamera(true)
+    }
+    override fun openPhoneTools(page: Page) {
+        savedHeadsetSbs=state.settings.sbs;state.phoneTools=true;state.navigate(page)
+        phoneInput.visibility=View.VISIBLE;spatialInput.visibility=View.GONE;phoneExit.visibility=View.VISIBLE
+        input.reset(System.nanoTime()/1_000_000);floating.cancel();dwell.reset()
+    }
+    private fun exitPhoneTools() {
+        state.phoneTools=false;state.saveSettings(state.settings.copy(sbs=savedHeadsetSbs))
+        phoneInput.visibility=View.GONE;spatialInput.visibility=View.VISIBLE;phoneExit.visibility=View.GONE
+        state.session.setMode(EnvironmentMode.MR);state.session.setUiVisible(true);floating.openMenu(SpatialMenu.CLOSED);recenter();configureCamera()
     }
     private fun showDialog(dialog: AlertDialog) {
         if(destroyed || isFinishing) return

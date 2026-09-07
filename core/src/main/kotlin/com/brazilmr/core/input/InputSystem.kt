@@ -4,7 +4,7 @@ import com.brazilmr.core.gesture.HandFeatures
 import com.brazilmr.core.tracking.HandData
 
 enum class PointerAction { MOVE, DOWN, UP, CANCEL }
-enum class InputSource { TOUCH, HAND, ACCESSIBILITY }
+enum class InputSource { TOUCH, HAND, ACCESSIBILITY, GAZE }
 enum class CursorState { NORMAL, HOVER, PRESSED, DISABLED }
 
 /** Event instance is borrowed until the callback returns. Coordinates are screen-normalized. */
@@ -69,6 +69,13 @@ class InputSystem(private val sink: InputSink) {
             } else releaseSince = Long.MIN_VALUE
         }
         cursorState = if (pinched) CursorState.PRESSED else if (hovered) CursorState.HOVER else CursorState.NORMAL
+    }
+    fun touchOwns(now: Long) = touchActive || now < touchUntil
+    fun gaze(action: PointerAction,now: Long,x: Float=.5f,y: Float=.5f) {
+        if(touchOwns(now)) return
+        cursorX=x;cursorY=y
+        emit(action,InputSource.GAZE,x,y,now)
+        cursorState=if(action==PointerAction.DOWN) CursorState.PRESSED else if(hovered) CursorState.HOVER else CursorState.NORMAL
     }
     fun cancelHand(time: Long) {
         if (pinched || candidateSince != Long.MIN_VALUE) releaseRequired = true

@@ -145,7 +145,7 @@ class LuaRuntime(
         bind(game, "hud") { args -> check(appType == AppType.GAME) { "API GAME em contexto WINDOW" }; createUi("panel", args.checktable(1)) }
         on(game, "game"); api.set("game", readonly(game))
         val system = LuaTable()
-        system.set("version", "0.1.0")
+        system.set("version", "0.2.0")
         bind(system, "mode") { LuaValue.valueOf(host.session.mode.name) }
         bind(system, "time") { LuaValue.valueOf(host.nowMillis().toDouble()) }
         bind(system, "spatialStatus") { LuaValue.valueOf(host.spatialStatus()) }
@@ -227,8 +227,18 @@ class LuaRuntime(
             out.set("id", window.id); out.set("title", window.title); out.set("type", window.appType.name)
             out.set("x", LuaValue.valueOf(window.x.toDouble())); out.set("y", LuaValue.valueOf(window.y.toDouble()))
             out.set("width", LuaValue.valueOf(window.width.toDouble())); out.set("height", LuaValue.valueOf(window.height.toDouble()))
+            val pose=LuaTable()
+            pose.set("x",LuaValue.valueOf(window.pose.x.toDouble()));pose.set("y",LuaValue.valueOf(window.pose.y.toDouble()));pose.set("z",LuaValue.valueOf(window.pose.z.toDouble()))
+            pose.set("width",LuaValue.valueOf(window.pose.width.toDouble()));pose.set("height",LuaValue.valueOf(window.pose.height.toDouble()));pose.set("yaw",LuaValue.valueOf(window.pose.yaw.toDouble()))
+            out.set("pose",pose)
             out.set("focused", LuaValue.valueOf(window.focused)); out.set("minimized", LuaValue.valueOf(window.minimized)); out
         }
+        bind(table,"place") { args ->
+            val window=ownWindow(args.optint(5,primaryWindowId))
+            host.windows.place(window.id,finite(args,1),finite(args,2),finite(args,3),if(args.isnil(4))null else finite(args,4));changed();LuaValue.TRUE
+        }
+        bind(table,"distance") { args -> val w=ownWindow(args.optint(2,primaryWindowId));host.windows.distance(w.id,finite(args,1));changed();LuaValue.TRUE }
+        bind(table,"scale") { args -> val w=ownWindow(args.optint(2,primaryWindowId));host.windows.scaleSpatial(w.id,finite(args,1));changed();LuaValue.TRUE }
         bind(table, "setTitle") { args ->
             val title = args.checkjstring(1); require(title.length in 1..120)
             ownWindow(args.optint(2, primaryWindowId)).title = title; changed(); LuaValue.TRUE

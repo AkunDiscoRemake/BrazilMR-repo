@@ -11,14 +11,18 @@ data class XrSettings(
     val leftHand: Boolean = true,
     val swapHands: Boolean = false,
     val filter: OneEuroConfig = OneEuroConfig(),
-    val sbs: Boolean = false,
+    val sbs: Boolean = true,
+    val gazeEnabled: Boolean = true,
+    val lensShift: Float = 0f,
+    val lensVertical: Float = 0f,
+    val lensDistortion: Float = 0f,
     val ipdMm: Float = 63f,
     val fovDegrees: Float = 75f,
     val renderScale: Float = 0.85f,
     val renderWidth: Int = 1920,
     val targetFps: Int = 60,
     val frontCamera: Boolean = false,
-    val spatialTracking: Boolean = false,
+    val spatialTracking: Boolean = true,
     val passthrough: Boolean = true,
     val uiScale: Float = 1f,
     val uiDistance: Float = 1.7f,
@@ -29,6 +33,7 @@ data class XrSettings(
     val dynamicResolution: Boolean = true,
 ) {
     init {
+        require(lensShift in -.15f.. .15f && lensVertical in -.15f.. .15f && lensDistortion in 0f.. .4f)
         require(trackingFps in 5..60 && trackingWidth in setOf(320, 640, 960))
         require(ipdMm in 50f..78f && fovDegrees in 45f..110f)
         require(renderScale in 0.5f..1f && renderWidth in setOf(1280, 1920, 2560))

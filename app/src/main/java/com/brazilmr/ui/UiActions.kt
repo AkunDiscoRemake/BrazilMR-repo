@@ -7,6 +7,7 @@ import com.brazilmr.platform.LauncherApp
 import com.brazilmr.platform.ScriptApp
 
 interface UiActions {
+    fun openPhoneTools(page: com.brazilmr.platform.Page) = Unit
     fun requestCamera()
     fun updateSettings(settings: XrSettings)
     fun toggleMode()

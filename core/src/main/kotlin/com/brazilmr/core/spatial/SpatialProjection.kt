@@ -32,6 +32,9 @@ class SpatialProjection {
     var centerX = 0f; var centerY = 0f
     var positionX = 0f; var positionY = 0f; var positionZ = 0f
     val orientation = Quaternion()
+    var cameraAligned = false
+    var focalX=0f;var focalY=0f;var opticalX=0f;var opticalY=0f
+    var lensShift=0f;var lensVertical=0f;var lensDistortion=0f
     private val tmp = FloatArray(3)
     private val origin = FloatArray(3)
     fun copyFrom(other: SpatialProjection) {
@@ -41,6 +44,8 @@ class SpatialProjection {
         centerX = other.centerX; centerY = other.centerY
         positionX = other.positionX; positionY = other.positionY; positionZ = other.positionZ
         orientation.copyFrom(other.orientation)
+        cameraAligned=other.cameraAligned;focalX=other.focalX;focalY=other.focalY;opticalX=other.opticalX;opticalY=other.opticalY
+        lensShift=other.lensShift;lensVertical=other.lensVertical;lensDistortion=other.lensDistortion
     }
     fun project(u: Float, v: Float, eye: Int, clip: FloatArray) {
         if (!spatial) {
@@ -51,14 +56,28 @@ class SpatialProjection {
         projectWorld((u - 0.5f) * planeWidth + centerX, (0.5f - v) * planeHeight + centerY, -distance, eye, clip)
     }
     fun projectWorld(x: Float, y: Float, z: Float, eye: Int, clip: FloatArray) {
-        val eyeX = if (sbs) (if (eye == 0) -0.5f else 0.5f) * ipdMetres else 0f
+        val eyeX = if (sbs && eye>=0) (if (eye == 0) -0.5f else 0.5f) * ipdMetres else 0f
         orientation.rotate(eyeX, 0f, 0f, origin)
         orientation.rotate(x - origin[0] - positionX, y - origin[1] - positionY, z - origin[2] - positionZ, tmp, true)
         val tanHalf = tan(fovDegrees * PI.toFloat() / 360f)
-        clip[0] = tmp[0] / (eyeAspect * tanHalf)
-        clip[1] = tmp[1] / tanHalf
+        clip[0] = tmp[0] * (if(focalX>0) focalX else 1f/(eyeAspect*tanHalf)) + opticalX*tmp[2]
+        clip[1] = tmp[1] * (if(focalY>0) focalY else 1f/tanHalf) + opticalY*tmp[2]
         clip[2] = -1.0010005f * tmp[2] - 0.10005003f // near .05, far 100
         clip[3] = -tmp[2]
+    }
+    /** eye=-1 is the cyclopean camera/hand/gaze ray; physical touch uses the corresponding eye. */
+    fun ray(x: Float,y: Float,eye: Int,out: SpatialRay): Boolean {
+        if(!x.isFinite() || !y.isFinite()) return false
+        val tanHalf=tan(fovDegrees*PI.toFloat()/360f)
+        val fx=if(focalX>0) focalX else 1f/(eyeAspect*tanHalf)
+        val fy=if(focalY>0) focalY else 1f/tanHalf
+        orientation.rotate((x*2-1+opticalX)/fx,(1-y*2+opticalY)/fy,-1f,tmp)
+        val length=sqrt(tmp[0]*tmp[0]+tmp[1]*tmp[1]+tmp[2]*tmp[2])
+        out.dx=tmp[0]/length;out.dy=tmp[1]/length;out.dz=tmp[2]/length
+        val eyeX=if(sbs && eye>=0) (if(eye==0) -.5f else .5f)*ipdMetres else 0f
+        orientation.rotate(eyeX,0f,0f,origin)
+        out.ox=positionX+origin[0];out.oy=positionY+origin[1];out.oz=positionZ+origin[2]
+        return true
     }
     /** x/y are normalized within ONE eye; caller splits touch coordinates for SBS. */
     fun rayToUi(x: Float, y: Float, eye: Int, out: FloatArray): Boolean {
@@ -72,7 +91,7 @@ class SpatialProjection {
         }
         val tanHalf = tan(fovDegrees * PI.toFloat() / 360f)
         orientation.rotate((2 * x - 1) * eyeAspect * tanHalf, (1 - 2 * y) * tanHalf, -1f, tmp)
-        val eyeX = if (sbs) (if (eye == 0) -0.5f else 0.5f) * ipdMetres else 0f
+        val eyeX = if (sbs && eye>=0) (if (eye == 0) -0.5f else 0.5f) * ipdMetres else 0f
         orientation.rotate(eyeX, 0f, 0f, origin)
         origin[0] += positionX; origin[1] += positionY; origin[2] += positionZ
         if (abs(tmp[2]) < 1e-6f) return false

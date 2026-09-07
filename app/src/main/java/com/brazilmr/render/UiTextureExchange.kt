@@ -4,7 +4,7 @@ import android.graphics.Bitmap
 
 /** Two slots with explicit ownership. GL never reads pixels while Canvas is writing them. */
 class UiTextureExchange(val width: Int = 1600, val height: Int = 900) {
-    val bitmaps = Array(2) { Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888) }
+    val bitmaps by lazy { Array(2) { Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888) } }
     private val states = IntArray(2)
     private var latest = -1
     @Synchronized fun beginWrite(): Int {

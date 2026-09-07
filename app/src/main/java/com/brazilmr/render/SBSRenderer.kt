@@ -12,6 +12,8 @@ import android.os.Looper
 import android.view.Surface
 import androidx.camera.core.SurfaceRequest
 import com.brazilmr.core.spatial.SpatialProjection
+import com.brazilmr.core.spatial.PanelSnapshot
+import com.brazilmr.core.spatial.PanelPose
 import com.brazilmr.spatial.ArCoreEnvironment
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -34,6 +36,14 @@ class SBSRenderer(
     private val mailbox = RenderFrame()
     private val frame = RenderFrame()
     private val lastProjection = SpatialProjection()
+    private val lastPanels=PanelSnapshot()
+    private val world=FloatArray(3)
+    private val panelTextures=HashMap<Int,PanelTexture>()
+    private var depthBuffer=0
+    private var panelShader: Shader?=null
+    private var lensShader: Shader?=null
+    @Volatile private var sensorTanX=.65f
+    @Volatile private var sensorTanY=.49f
     private val projectionLock = Any()
     private val clip = FloatArray(4)
     private val vertices = floats(24)
@@ -63,17 +73,22 @@ class SBSRenderer(
 
     fun publish(next: RenderFrame) { synchronized(mailbox) { mailbox.copyFrom(next) } }
     fun readProjection(into: SpatialProjection) { synchronized(projectionLock) { into.copyFrom(lastProjection) } }
+    fun readPanels(into: PanelSnapshot) { synchronized(projectionLock) { into.copyFrom(lastPanels) } }
+    fun setCameraTangents(x: Float,y: Float) { if(x>0 && y>0) { sensorTanX=x;sensorTanY=y } }
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         try {
             if (initialized) { cameraTexture?.release(false); for (texture in appTextures.values) texture.release(false); appTextures.clear(); main.post(onLost) }
+            panelTextures.clear()
             textureShader = Shader(TEXTURE_VERTEX, TEXTURE_FRAGMENT)
+            panelShader=Shader(TEXTURE_VERTEX,PANEL_FRAGMENT)
+            lensShader=Shader(TEXTURE_VERTEX,LENS_FRAGMENT)
             externalShader = Shader(TEXTURE_VERTEX, EXTERNAL_FRAGMENT)
             colorShader = Shader(COLOR_VERTEX, COLOR_FRAGMENT)
             pointShader = Shader(POINT_VERTEX, POINT_FRAGMENT)
             cameraTexture = ExternalTexture()
             arTexture = texture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES)
             uiTexture = texture(GL_TEXTURE_2D); hasUi = false
-            framebuffer = 0; targetTexture = 0; targetWidth = 0; targetHeight = 0
+            framebuffer = 0; depthBuffer=0; targetTexture = 0; targetWidth = 0; targetHeight = 0
             initialized = true; glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE)
             main.post(onReady)
         } catch (error: Exception) { initialized = false; main.post { onError(error.message ?: "OpenGL indisponível") } }
@@ -81,59 +96,117 @@ class SBSRenderer(
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) { this.width = width.coerceAtLeast(1); this.height = height.coerceAtLeast(1) }
     override fun onDrawFrame(gl: GL10?) {
         if (!initialized) return
-        val started = System.nanoTime()
+        val started=System.nanoTime()
         try {
             synchronized(mailbox) { frame.copyFrom(mailbox) }
-            val sbs = frame.projection.sbs
-            val ratio = min(1f, frame.maxWidth.toFloat() / width) * frame.scale
-            val desiredWidth = ((width * ratio).toInt() / 2 * 2).coerceAtLeast(2)
-            val desiredHeight = (height * ratio).toInt().coerceAtLeast(2)
-            ensureTarget(desiredWidth, desiredHeight)
-            uploadUi()
+            val sbs=frame.projection.sbs
+            val ratio=min(1f,frame.maxWidth.toFloat()/width)*frame.scale
+            ensureTarget(((width*ratio).toInt()/2*2).coerceAtLeast(2),(height*ratio).toInt().coerceAtLeast(2))
+            if(frame.immersive) uploadPanels() else uploadUi()
             cameraTexture?.update()
-            val eyeWidth = if (sbs) targetWidth / 2 else targetWidth
-            frame.projection.eyeAspect = eyeWidth.toFloat() / targetHeight
-            val arCamera = ar.update(arTexture, eyeWidth, targetHeight, frame.displayRotation, arUv, frame.projection)
-            synchronized(projectionLock) { lastProjection.copyFrom(frame.projection) }
-            glBindFramebuffer(GL_FRAMEBUFFER, framebuffer)
-            glDisable(GL_BLEND)
-            glClearColor(.025f, .018f, .042f, 1f); glClear(GL_COLOR_BUFFER_BIT)
-            for (i in 0 until frame.externalCount) appTextures[frame.externalIds[i]]?.update()
-            for (eye in 0 until if (sbs) 2 else 1) {
-                glViewport(eye * eyeWidth, 0, eyeWidth, targetHeight)
-                if (frame.camera && !frame.vr) {
-                    if (arCamera) {
-                        fullscreenVertices(arUv)
-                        drawTextured(externalShader!!, arTexture, GLES11Ext.GL_TEXTURE_EXTERNAL_OES, identity, 1f)
-                    } else cameraTexture?.takeIf { it.hasImage }?.let {
-                        cameraVertices(eyeWidth.toFloat() / targetHeight)
-                        drawTextured(externalShader!!, it.texture, GLES11Ext.GL_TEXTURE_EXTERNAL_OES, it.matrix, 1f)
+            val eyeWidth=if(sbs)targetWidth/2 else targetWidth
+            frame.projection.eyeAspect=eyeWidth.toFloat()/targetHeight
+            if(frame.projection.cameraAligned) cameraProjection(frame.projection)
+            val arCamera=ar.update(arTexture,eyeWidth,targetHeight,frame.displayRotation,arUv,frame.projection)
+            frame.panels.projection.copyFrom(frame.projection)
+            synchronized(projectionLock) { lastProjection.copyFrom(frame.projection);lastPanels.copyFrom(frame.panels) }
+            glBindFramebuffer(GL_FRAMEBUFFER,framebuffer);glDisable(GL_BLEND);glDepthMask(true)
+            glClearColor(.014f,.010f,.025f,1f);glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
+            if(frame.immersive) {
+                for(i in 0 until frame.panels.count) if(frame.panelVideo[i]>=0)appTextures[frame.panelVideo[i]]?.update()
+            } else for(i in 0 until frame.externalCount)appTextures[frame.externalIds[i]]?.update()
+            for(eye in 0 until if(sbs)2 else 1) {
+                glViewport(eye*eyeWidth,0,eyeWidth,targetHeight);glDisable(GL_DEPTH_TEST);glDisable(GL_BLEND)
+                if(frame.camera && !frame.vr) {
+                    if(arCamera) { fullscreenVertices(arUv);drawTextured(externalShader!!,arTexture,GLES11Ext.GL_TEXTURE_EXTERNAL_OES,identity,1f) }
+                    else cameraTexture?.takeIf { it.hasImage }?.let {
+                        cameraVertices(eyeWidth.toFloat()/targetHeight);drawTextured(externalShader!!,it.texture,GLES11Ext.GL_TEXTURE_EXTERNAL_OES,it.matrix,1f)
                     }
                 }
-                drawObjects(eye)
-                for (i in 0 until frame.externalCount) {
-                    val external = appTextures[frame.externalIds[i]] ?: continue
-                    if (!external.hasImage) continue
-                    val offset = i * 4
-                    planeVertices(frame.externalRects[offset], frame.externalRects[offset + 1], frame.externalRects[offset + 2], frame.externalRects[offset + 3], eye, true)
-                    drawTextured(externalShader!!, external.texture, GLES11Ext.GL_TEXTURE_EXTERNAL_OES, external.matrix, 1f)
+                if(frame.immersive) {
+                    glEnable(GL_DEPTH_TEST);glDepthFunc(GL_LEQUAL);glDepthMask(true)
+                    drawObjects(eye);drawPanels(eye)
+                } else {
+                    drawObjects(eye)
+                    for(i in 0 until frame.externalCount) {
+                        val texture=appTextures[frame.externalIds[i]] ?: continue
+                        if(!texture.hasImage)continue
+                        val o=i*4;planeVertices(frame.externalRects[o],frame.externalRects[o+1],frame.externalRects[o+2],frame.externalRects[o+3],eye,true)
+                        drawTextured(externalShader!!,texture.texture,GLES11Ext.GL_TEXTURE_EXTERNAL_OES,texture.matrix,1f)
+                    }
+                    glEnable(GL_BLEND);glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_ALPHA)
+                    if(hasUi) { planeVertices(0f,0f,1f,1f,eye,false);drawTextured(textureShader!!,uiTexture,GL_TEXTURE_2D,identity,frame.opacity) }
                 }
-                glEnable(GL_BLEND); glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA)
-                if (hasUi) {
-                    planeVertices(0f, 0f, 1f, 1f, eye, false)
-                    drawTextured(textureShader!!, uiTexture, GL_TEXTURE_2D, identity, frame.opacity)
-                }
-                glDisable(GL_BLEND)
-                if (frame.cursorVisible) drawCursor(eye)
+                glDisable(GL_BLEND);glDisable(GL_DEPTH_TEST)
+                if(frame.cursorVisible)drawCursor(eye)
             }
-            glBindFramebuffer(GL_FRAMEBUFFER, 0); glViewport(0, 0, width, height); glDisable(GL_BLEND)
-            fullscreenVertices(null)
-            drawTextured(textureShader!!, targetTexture, GL_TEXTURE_2D, identity, 1f)
-            count++
-            val now = System.nanoTime()
-            if (now - fpsTime >= 1_000_000_000L) { if (fpsTime != 0L) fps = (count * 1_000_000_000L / (now - fpsTime)).toInt(); count = 0; fpsTime = now }
-            lastFrameMillis = (now - started) / 1_000_000f
-        } catch (error: Exception) { initialized = false; main.post { onError(error.message ?: "Falha no renderer") } }
+            glBindFramebuffer(GL_FRAMEBUFFER,0);glDisable(GL_DEPTH_TEST);glDisable(GL_BLEND)
+            if(sbs && frame.immersive) {
+                for(eye in 0..1) {
+                    glViewport(eye*(width/2),0,width/2,height);fullscreenVertices(null)
+                    val shader=lensShader!!;glUseProgram(shader.program)
+                    glUniform4f(shader.lens,eye.toFloat(),.5f+if(eye==0)frame.projection.lensShift else -frame.projection.lensShift,.5f+frame.projection.lensVertical,frame.projection.lensDistortion)
+                    drawTextured(shader,targetTexture,GL_TEXTURE_2D,identity,1f)
+                }
+            } else { glViewport(0,0,width,height);fullscreenVertices(null);drawTextured(textureShader!!,targetTexture,GL_TEXTURE_2D,identity,1f) }
+            count++;val now=System.nanoTime()
+            if(now-fpsTime>=1_000_000_000L) { if(fpsTime!=0L)fps=(count*1_000_000_000L/(now-fpsTime)).toInt();count=0;fpsTime=now }
+            lastFrameMillis=(now-started)/1_000_000f
+        } catch(error: Exception) { initialized=false;main.post { onError(error.message ?: "Falha no renderer") } }
+    }
+    private class PanelTexture(val id: Int,var uploaded: Boolean=false)
+    private fun uploadPanels() {
+        val iterator=panelTextures.entries.iterator()
+        while(iterator.hasNext()) {
+            val entry=iterator.next()
+            if(frame.panels.indexOf(entry.key)<0) { glDeleteTextures(1,intArrayOf(entry.value.id),0);iterator.remove() }
+        }
+        for(i in 0 until frame.panels.count) {
+            val exchange=frame.panelPixels[i] ?: continue
+            val texture=panelTextures.getOrPut(frame.panels.ids[i]) { PanelTexture(texture(GL_TEXTURE_2D)) }
+            val slot=exchange.beginRead();if(slot<0)continue
+            try {
+                glBindTexture(GL_TEXTURE_2D,texture.id)
+                if(texture.uploaded)GLUtils.texSubImage2D(GL_TEXTURE_2D,0,0,0,exchange.bitmaps[slot])
+                else { GLUtils.texImage2D(GL_TEXTURE_2D,0,exchange.bitmaps[slot],0);texture.uploaded=true }
+            } finally { exchange.endRead(slot) }
+        }
+    }
+    private fun drawPanels(eye: Int) {
+        for(i in 0 until frame.panels.count) {
+            val texture=panelTextures[frame.panels.ids[i]] ?: continue
+            if(!texture.uploaded)continue
+            val pose=frame.panels.poses[i]
+            val video=appTextures[frame.panelVideo[i]]
+            if(video?.hasImage==true) {
+                glDisable(GL_BLEND)
+                surfaceVertices(pose,eye,16f/512,64f/384,496f/512,334f/384,true,0f)
+                drawTextured(externalShader!!,video.texture,GLES11Ext.GL_TEXTURE_EXTERNAL_OES,video.matrix,1f)
+            }
+            glEnable(GL_BLEND);glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_ALPHA)
+            surfaceVertices(pose,eye,0f,0f,1f,1f,false,.001f)
+            drawTextured(panelShader!!,texture.id,GL_TEXTURE_2D,identity,frame.opacity)
+        }
+        glDisable(GL_BLEND)
+    }
+    private fun surfaceVertices(pose: PanelPose,eye: Int,left: Float,top: Float,right: Float,bottom: Float,flip: Boolean,offset: Float) {
+        vertices.clear()
+        for(i in 0..3) {
+            pose.world(if(i%2==0)left else right,if(i<2)top else bottom,world,offset)
+            frame.projection.projectWorld(world[0],world[1],world[2],eye,clip);vertices.put(clip)
+            vertices.put(if(i%2==0)0f else 1f);vertices.put(if(flip) (if(i<2)1f else 0f) else (if(i<2)0f else 1f))
+        }
+        vertices.position(0)
+    }
+    /** Match virtual angular motion to the actual camera crop instead of inventing a 75-degree lens. */
+    private fun cameraProjection(p: SpatialProjection) {
+        val g=cameraGeometry;val sensorAspect=sensorTanX/sensorTanY;val bufferAspect=g.width.toFloat()/g.height
+        var tx=sensorTanX*min(1f,bufferAspect/sensorAspect)*g.crop.width()/g.width
+        var ty=sensorTanY*min(1f,sensorAspect/bufferAspect)*g.crop.height()/g.height
+        if(g.rotation%180!=0) { val swap=tx;tx=ty;ty=swap }
+        val aspect=tx/ty
+        tx*=min(1f,p.eyeAspect/aspect);ty*=min(1f,aspect/p.eyeAspect)
+        p.focalX=1f/tx.coerceAtLeast(.1f);p.focalY=1f/ty.coerceAtLeast(.1f);p.opticalX=0f;p.opticalY=0f
     }
     fun provideCameraSurface(request: SurfaceRequest) {
         val resolution = request.resolution
@@ -178,11 +251,15 @@ class SBSRenderer(
         if (w == targetWidth && h == targetHeight && framebuffer != 0) return
         if (targetTexture != 0) glDeleteTextures(1, intArrayOf(targetTexture), 0)
         if (framebuffer != 0) glDeleteFramebuffers(1, intArrayOf(framebuffer), 0)
+        if(depthBuffer!=0)glDeleteRenderbuffers(1,intArrayOf(depthBuffer),0)
         targetTexture = texture(GL_TEXTURE_2D)
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, null)
         val ids = IntArray(1); glGenFramebuffers(1, ids, 0); framebuffer = ids[0]
         glBindFramebuffer(GL_FRAMEBUFFER, framebuffer)
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, targetTexture, 0)
+        glGenRenderbuffers(1,ids,0);depthBuffer=ids[0];glBindRenderbuffer(GL_RENDERBUFFER,depthBuffer)
+        glRenderbufferStorage(GL_RENDERBUFFER,GL_DEPTH_COMPONENT16,w,h)
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER,GL_DEPTH_ATTACHMENT,GL_RENDERBUFFER,depthBuffer)
         check(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) { "Framebuffer não suportado" }
         targetWidth = w; targetHeight = h
     }
@@ -235,14 +312,15 @@ class SBSRenderer(
     }
     private fun drawCursor(eye: Int) {
         val shader = pointShader!!
-        frame.projection.project(frame.cursorX, frame.cursorY, eye, clip)
+        if(frame.immersive) frame.projection.projectWorld(frame.cursorWorldX,frame.cursorWorldY,frame.cursorWorldZ,eye,clip) else frame.projection.project(frame.cursorX, frame.cursorY, eye, clip)
         if (clip[3] <= 0) return
         point.clear(); point.put(clip); point.position(0)
         glUseProgram(shader.program); glEnableVertexAttribArray(shader.position)
         glVertexAttribPointer(shader.position, 4, GL_FLOAT, false, 0, point)
         val pressed = frame.cursorState == 2
         glUniform4f(shader.color, if (pressed) 1f else .72f, if (pressed) .95f else .52f, 1f, 1f)
-        glUniform1f(shader.size, (if (frame.cursorState == 1) 15f else 11f) * frame.scale)
+        glUniform1f(shader.size, (if(frame.dwellProgress>0)16f else if(frame.cursorState==1)10f else 7f)*frame.scale)
+        glUniform1f(shader.progress,frame.dwellProgress)
         glDrawArrays(GL_POINTS, 0, 1); glDisableVertexAttribArray(shader.position)
     }
     private fun drawObjects(eye: Int) {
@@ -282,7 +360,7 @@ class SBSRenderer(
     }
     private class Shader(vertex: String, fragment: String) {
         val program: Int
-        val position: Int; val uv: Int; val matrix: Int; val alpha: Int; val sampler: Int; val color: Int; val size: Int
+        val position: Int; val uv: Int; val matrix: Int; val alpha: Int; val sampler: Int; val color: Int; val size: Int;val lens: Int;val progress: Int
         init {
             val v = compile(GL_VERTEX_SHADER, vertex); val f = compile(GL_FRAGMENT_SHADER, fragment)
             program = glCreateProgram(); glAttachShader(program, v); glAttachShader(program, f); glLinkProgram(program)
@@ -291,7 +369,7 @@ class SBSRenderer(
             glDeleteShader(v); glDeleteShader(f)
             position = glGetAttribLocation(program, "aPosition"); uv = glGetAttribLocation(program, "aUv")
             matrix = glGetUniformLocation(program, "uMatrix"); alpha = glGetUniformLocation(program, "uAlpha"); sampler = glGetUniformLocation(program, "uTexture")
-            color = glGetUniformLocation(program, "uColor"); size = glGetUniformLocation(program, "uSize")
+            color = glGetUniformLocation(program, "uColor"); size = glGetUniformLocation(program, "uSize");lens=glGetUniformLocation(program,"uLens");progress=glGetUniformLocation(program,"uProgress")
         }
         private fun compile(type: Int, source: String): Int {
             val shader = glCreateShader(type); glShaderSource(shader, source); glCompileShader(shader)
@@ -314,6 +392,8 @@ class SBSRenderer(
         private const val COLOR_VERTEX = "attribute vec4 aPosition; void main(){gl_Position=aPosition;}"
         private const val COLOR_FRAGMENT = "precision mediump float; uniform vec4 uColor; void main(){gl_FragColor=uColor;}"
         private const val POINT_VERTEX = "attribute vec4 aPosition; uniform float uSize; void main(){gl_Position=aPosition; gl_PointSize=uSize;}"
-        private const val POINT_FRAGMENT = "precision mediump float; uniform vec4 uColor; void main(){vec2 p=gl_PointCoord-vec2(.5); float r=length(p); if(r>.5) discard; gl_FragColor=r<.23?vec4(1.,1.,1.,1.):uColor;}"
+        private const val PANEL_FRAGMENT = "precision mediump float; uniform sampler2D uTexture; uniform float uAlpha; varying vec2 vUv; void main(){vec4 c=texture2D(uTexture,vUv)*uAlpha; if(c.a<.01)discard; gl_FragColor=c;}"
+        private const val LENS_FRAGMENT = "precision mediump float; uniform sampler2D uTexture; uniform vec4 uLens; varying vec2 vUv; void main(){vec2 p=(vec2(vUv.x,1.-vUv.y)-uLens.yz)*2.; vec2 s=.5+p*(1.+uLens.w*dot(p,p))*.5; if(s.x<0.||s.x>1.||s.y<0.||s.y>1.){gl_FragColor=vec4(0.,0.,0.,1.);}else{gl_FragColor=texture2D(uTexture,vec2((uLens.x+s.x)*.5,1.-s.y));}}"
+        private const val POINT_FRAGMENT = "precision mediump float; uniform vec4 uColor; uniform float uProgress; void main(){vec2 p=gl_PointCoord-vec2(.5);float r=length(p);if(r>.5)discard;if(uProgress>0.){float a=mod(atan(p.y,p.x)+1.5707963+6.2831853,6.2831853)/6.2831853;if(r>.34&&r<.46&&a<uProgress){gl_FragColor=uColor;return;}if(r>.14)discard;}gl_FragColor=r<.24?vec4(1.):uColor;}"
     }
 }

@@ -13,6 +13,7 @@ import com.google.ar.core.exceptions.NotYetAvailableException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
+import kotlin.math.*
 
 /** Exclusive camera provider: CameraX must be unbound before resume(). No simultaneous camera pipelines. */
 class ArCoreEnvironment(
@@ -31,6 +32,7 @@ class ArCoreEnvironment(
     private var sensorOrientation = 90
     private val ndc = buffer(floatArrayOf(-1f, 1f, 1f, 1f, -1f, -1f, 1f, -1f))
     private val rotation = FloatArray(4)
+    private val cameraProjection=FloatArray(16)
     private val translation = FloatArray(3)
     private val originPosition = FloatArray(3)
     private val transformed = FloatArray(3)
@@ -80,11 +82,17 @@ class ArCoreEnvironment(
             frame.transformCoordinates2d(Coordinates2d.OPENGL_NORMALIZED_DEVICE_COORDINATES, ndc, Coordinates2d.TEXTURE_NORMALIZED, uv)
             uv.position(0)
             val camera = frame.camera
+            if(projection.cameraAligned) {
+                camera.getProjectionMatrix(cameraProjection,0,.05f,100f)
+                projection.focalX=cameraProjection[0];projection.focalY=cameraProjection[5]
+                projection.opticalX=cameraProjection[8];projection.opticalY=cameraProjection[9]
+            }
             if (camera.trackingState == TrackingState.TRACKING) {
                 val pose = camera.displayOrientedPose
                 pose.getRotationQuaternion(rotation, 0); pose.getTranslation(translation, 0)
                 if (!centered) {
-                    origin.set(rotation[0], rotation[1], rotation[2], rotation[3]); translation.copyInto(originPosition); centered = true
+                    val yaw=atan2(2*(rotation[0]*rotation[2]+rotation[3]*rotation[1]),1-2*(rotation[0]*rotation[0]+rotation[1]*rotation[1]))
+                    origin.set(0f,sin(yaw/2),0f,cos(yaw/2));translation.copyInto(originPosition);centered=true
                 }
                 val x = rotation[0]; val y = rotation[1]; val z = rotation[2]; val w = rotation[3]
                 projection.orientation.set(origin.w*x-origin.x*w-origin.y*z+origin.z*y, origin.w*y+origin.x*z-origin.y*w-origin.z*x, origin.w*z-origin.x*y+origin.y*x-origin.z*w, origin.w*w+origin.x*x+origin.y*y+origin.z*z)

@@ -38,6 +38,7 @@ class PlatformState(context: Context) {
     val installedApps = ArrayList<LauncherApp>()
     val scripts = ArrayList<ScriptApp>()
     val logs = ArrayList<String>()
+    var phoneTools = false
     var page = Page.HOME
     var appPage = 0
     var settingsTab = 0
@@ -61,12 +62,8 @@ class PlatformState(context: Context) {
     var developerType = AppType.WINDOW
     val sessionPrefs = context.getSharedPreferences("brazilmr.session.v1", Context.MODE_PRIVATE)
     init {
-        val notes = windows.open("brazilmr.notes", "Notas do espaço", content = WindowContent.NOTES)
-        notes.text = sessionPrefs.getString("notes", "Seu espaço começa aqui.\n\nArraste a barra para mover.\nUse o canto para redimensionar.\n\nTouch ou pinça: a mesma interação.")!!
-        windows.move(notes.id, .025f, .045f); windows.resize(notes.id, .53f, .83f)
         val clock = windows.open("brazilmr.clock", "Agora", content = WindowContent.CLOCK)
-        windows.move(clock.id, .59f, .1f); windows.resize(clock.id, .37f, .72f)
-        windows.focus(notes.id)
+        com.brazilmr.core.spatial.HeadsetLayout.clock(clock.pose)
         val manifests = JSONArray(context.assets.open("examples/manifests.json").bufferedReader().use { it.readText() })
         for (i in 0 until manifests.length()) {
             val j = manifests.getJSONObject(i); val declarations = j.getJSONArray("permissions")

@@ -280,6 +280,60 @@ fun main() {
         f.pinchRatio=.6f;input.hand(h,f,false,1200)
         f.pinchRatio=.1f;input.hand(h,f,false,1300);input.hand(h,f,false,1370);check(handDowns==2)
     }
+    test("Spatial panels: independent yaw/depth, inverse ray cast in both eyes") {
+        val camera=SpatialProjection().apply{spatial=true;sbs=true;eyeAspect=1.1f}
+        val pose=PanelPose().set(.4f,.1f,-1.8f,.8f,.6f,-23f)
+        val world=FloatArray(3);val clip=FloatArray(4);val ray=SpatialRay();val hit=FloatArray(3)
+        for(eye in 0..1)for(u in listOf(.1f,.5f,.9f))for(v in listOf(.1f,.5f,.9f)) {
+            pose.world(u,v,world);camera.projectWorld(world[0],world[1],world[2],eye,clip)
+            camera.ray((clip[0]/clip[3]+1)/2,(1-clip[1]/clip[3])/2,eye,ray)
+            check(pose.intersect(ray,hit));near(hit[0],u);near(hit[1],v)
+        }
+    }
+    test("Spatial picking: nearest surface wins, not desktop focus ordering") {
+        val snapshot=PanelSnapshot();snapshot.count=2;snapshot.ids[0]=1;snapshot.ids[1]=2
+        snapshot.poses[0].set(0f,0f,-2f,.9f,.7f);snapshot.poses[1].set(0f,0f,-1.2f,.9f,.7f)
+        val ray=SpatialRay();val hit=FloatArray(3)
+        check(snapshot.hit(ray,hit)==1);near(hit[2],1.2f)
+        ray.dz=1f;check(snapshot.hit(ray,hit)==-1)
+    }
+    test("MR home: camera centre unobstructed; no fullscreen desktop surface") {
+        val snapshot=PanelSnapshot();snapshot.count=2
+        HeadsetLayout.clock(snapshot.poses[0]);HeadsetLayout.dock(snapshot.poses[1])
+        check(snapshot.hit(SpatialRay(),FloatArray(3))==-1)
+        val p=SpatialProjection().apply{spatial=true;sbs=true;eyeAspect=1.1f}
+        val a=FloatArray(3);val b=FloatArray(4);var area=0f
+        for(panel in snapshot.poses.take(2)) {
+            var minX=10f;var maxX=-10f;var minY=10f;var maxY=-10f
+            for(i in 0..3){panel.world(if(i%2==0)0f else 1f,if(i<2)0f else 1f,a);p.projectWorld(a[0],a[1],a[2],0,b);minX=min(minX,b[0]/b[3]);maxX=max(maxX,b[0]/b[3]);minY=min(minY,b[1]/b[3]);maxY=max(maxY,b[1]/b[3])}
+            area+=(maxX-minX)*(maxY-minY)/4
+        }
+        check(area<.15f){"UI covers ${area*100}% of the eye"}
+    }
+    test("World-locked UI: turning head changes projection, not panel world pose") {
+        val p=SpatialProjection().apply{spatial=true};val panel=PanelPose();val w=FloatArray(3);val c=FloatArray(4)
+        panel.world(.5f,.5f,w);p.projectWorld(w[0],w[1],w[2],0,c);near(c[0],0f)
+        p.orientation.set(0f,sin(.3f),0f,cos(.3f));p.projectWorld(w[0],w[1],w[2],0,c)
+        check(abs(c[0]/c[3])>.5f);near(panel.x,0f);near(panel.z,-1.7f)
+    }
+    test("VR Box lens mapping: rendering/input round trip with shifts and distortion") {
+        val a=FloatArray(2);val b=FloatArray(2)
+        for(eye in 0..1)for(k in listOf(0f,.15f,.35f))for(u in listOf(.1f,.5f,.9f)) {
+            LensMapping.viewToOutput(u,.3f,eye,.04f,-.02f,k,a)
+            check(LensMapping.outputToView(a[0],a[1],eye,.04f,-.02f,k,b));near(b[0],u);near(b[1],.3f)
+        }
+    }
+    test("Gaze dwell: one click per fixation; empty space never activates") {
+        val d=DwellSelector();check(!d.update(4,0));check(!d.update(4,700));check(d.update(4,1000))
+        check(!d.update(4,3000));check(!d.update(-1,3100));check(!d.update(4,3200));check(d.update(4,4200))
+    }
+    test("Spatial window movement, depth and uniform scale remain bounded") {
+        val wm=WindowManagerXR();val w=wm.open("test","Spatial")
+        wm.place(w.id,.8f,.2f,-2f,-20f);near(w.pose.z,-2f)
+        val aspect=w.pose.width/w.pose.height;wm.scaleSpatial(w.id,1.3f);near(w.pose.width/w.pose.height,aspect)
+        wm.distance(w.id,1.4f);near(sqrt(w.pose.x*w.pose.x+w.pose.z*w.pose.z),1.4f)
+        rejects{wm.place(w.id,Float.NaN,0f,-1f)}
+    }
     println("\nBrazil MR Core: $passed passed, $failed failed")
     check(failed == 0) { "$failed core tests failed" }
 }
