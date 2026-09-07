@@ -77,3 +77,36 @@ jobs:
           name: BrazilMR-debug
           retention-days: 7
           path: app/build/outputs/apk/debug/*.apk
+
+  spatial-preview:
+    name: Spatial composition references
+    needs: verify
+    if: github.ref == 'refs/heads/arena/01a079e4-brazilmr-repo'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: verification-reports
+          path: reports
+      - name: Expose small reference images through GitHub's authenticated Git data API
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import base64, json, os, subprocess
+          from pathlib import Path
+          # These are Canvas + core-projection test images, NEVER device camera frames.
+          # Store small unreferenced blobs, not generated APKs, datasets, branches or commits.
+          for name in ('headset-home', 'headset-windows', 'headset-menu'):
+              path = next(Path('reports').rglob(name + '.png'))
+              data = path.read_bytes()
+              assert len(data) < 1_000_000
+              payload = json.dumps({'encoding':'base64','content':base64.b64encode(data).decode()})
+              result = subprocess.run(['gh','api','--method','POST',f'repos/{os.environ["GH_REPO"]}/git/blobs','--input','-'],input=payload,text=True,capture_output=True,check=True)
+              sha = json.loads(result.stdout)['sha']
+              print(f'::notice title=Spatial reference::{name} {sha}')
+          PY

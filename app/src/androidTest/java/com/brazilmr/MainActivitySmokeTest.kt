@@ -5,6 +5,7 @@ import android.view.ViewGroup
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.brazilmr.ui.WorkspaceInputView
+import com.brazilmr.ui.SpatialInputView
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -21,7 +22,7 @@ class MainActivitySmokeTest {
         }
     }
     private fun containsInput(view: View): Boolean {
-        if(view is WorkspaceInputView) return true
+        if(view is SpatialInputView) return true
         if(view is ViewGroup) for(i in 0 until view.childCount) if(containsInput(view.getChildAt(i))) return true
         return false
     }

@@ -1,4 +1,4 @@
-# Brazil MR Developer · API 0.1
+# Brazil MR Developer · API 0.2
 
 Lua 5.2 via LuaJ 3.0.1, com uma superfície restrita. Os exemplos em `sdk/examples` são incorporados ao app. Edite cópias no menu Developer; salvar mantém um rascunho privado entre reinícios, mas não executa nem concede capabilities.
 
@@ -15,7 +15,7 @@ Um manifesto declara `id`, `title`, `type`, `entry` e `permissions`. Declarar n�
 
 ## Coordenadas e propriedade
 
-- UI: `x`, `y`, `width`, `height` entre 0 e 1, relativos à área de conteúdo da janela. Desenho e hit testing são recortados por essa área.
+- UI: `x`, `y`, `width`, `height` entre 0 e 1, relativos à área de conteúdo da superfície própria (não à tela). Desenho e hit testing são recortados por essa área.
 - Janelas: frações do workspace, não pixels Android; resize limitado pelo WindowManager.
 - Landmarks: câmera orientada, normalizada; z é relativo ao modelo, **não uma distância física**. O cursor faz uma transformação adicional de crop/mirror/projeção, portanto não é correto tratar um landmark bruto como coordenada global da UI.
 - Cenário: metros relativos à origem da sessão. Sem ARCore é um espaço 3DoF, não um mapa físico persistente.
@@ -55,10 +55,12 @@ Propriedades: `text` (até 2048 caracteres), `x`, `y`, `width`, `height`, `visib
 | Função | Resultado |
 |---|---|
 | `create(title, type?)` | Cria outra janela própria no mesmo runtime; retorna ID. |
-| `get(id?)` | Snapshot `{id, title, type, x, y, width, height, focused, minimized}`. |
+| `get(id?)` | Snapshot `{id, title, type, x, y, width, height, focused, minimized, pose}`; `pose={x,y,z,width,height,yaw}` está em metros/graus. |
 | `setTitle(title, id?)` | Título de 1–120 caracteres. |
 | `move(x, y, id?)` | Move e limita às bordas do workspace. |
 | `resize(width, height, id?)` | Tamanho normalizado, limitado pelo host. |
+| `place(x, y, z, yaw?, id?)` | Posição em metros e inclinação em graus da superfície própria. |
+| `distance(metres, id?)`, `scale(factor, id?)` | Aproximar/afastar e redimensionar sem deformar o conteúdo. |
 | `focus(id?)`, `minimize(id?)`, `close(id?)` | Ciclo de vida de janela, sem outro executor. |
 | `on("focus", callback)` | Boolean: alguma janela deste principal recebeu/perdeu foco. |
 | `on("minimized", callback)` | Boolean: a janela principal foi minimizada/restaurada. |
@@ -89,7 +91,7 @@ end)
 zxr.input.on("click", function() print("ativação de botão próprio") end)
 ```
 
-`action`: `move`, `down`, `up`, `cancel`. `source`: `touch` ou `hand`; a ativação por nós de acessibilidade também chama o evento de clique do botão. Moves podem ser reduzidos por backpressure; eventos não são um loop de renderização. Saturação de eventos críticos interrompe o runtime em vez de deixar uma interação pressionada indefinidamente. Não existe função para sintetizar cliques arbitrários em outros apps a partir de Lua.
+`action`: `move`, `down`, `up`, `cancel`. `source`: `touch`, `hand` ou `gaze`; a ativação por nós de acessibilidade também chama o evento de clique do botão. Moves podem ser reduzidos por backpressure; eventos não são um loop de renderização. Saturação de eventos críticos interrompe o runtime em vez de deixar uma interação pressionada indefinidamente. Não existe função para sintetizar cliques arbitrários em outros apps a partir de Lua.
 
 ## zxr.vr / zxr.mr
 
@@ -122,7 +124,7 @@ end
 
 ## zxr.system
 
-- `version` → `"0.1.0"`.
+- `version` → `"0.2.0"`.
 - `mode()` → `"MR"` / `"VR"`.
 - `time()` → relógio monotônico do host, em milissegundos; não é data civil.
 - `spatialStatus()` → descrição de disponibilidade/relocalização/3DoF/6DoF.

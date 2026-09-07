@@ -300,7 +300,7 @@ class MainActivity : ComponentActivity(), UiActions {
         state.session.apply(gesture)
         if(gesture.showUi) { head.recenter();ar.recenter() }
         if(previousMode!=state.session.mode) modeChanged()
-        if(previousVisibility!=state.session.uiVisible) { input.cancelHand(now);state.dirty=true }
+        if(previousVisibility!=state.session.uiVisible) { input.cancelHand(now);if(!state.session.uiVisible)floating.cancel();dwell.reset();state.dirty=true }
         pointerHand.copyFrom(raw.right)
         renderer.readProjection(inputProjection)
         CameraCoordinates.map(raw.right.x(8),raw.right.y(8),hands.sourceAspect,inputProjection.eyeAspect,state.settings.frontCamera,cameraCoordinates)
@@ -403,7 +403,7 @@ class MainActivity : ComponentActivity(), UiActions {
         if(state.settings.uiOffsetX!=0f || state.settings.uiOffsetY!=0f) state.saveSettings(state.settings.copy(uiOffsetX=0f,uiOffsetY=0f))
         state.dirty=true
     }
-    override fun hideUi() { state.session.setUiVisible(false);input.reset(System.nanoTime()/1_000_000);state.dirty=true }
+    override fun hideUi() { state.session.setUiVisible(false);input.reset(System.nanoTime()/1_000_000);floating.cancel();dwell.reset();state.dirty=true }
     override fun openBuiltin(content: WindowContent) {
         safeAction {
             val title=when(content) { WindowContent.NOTES -> "Notas do espaço";WindowContent.CLOCK -> "Agora";else -> "Diagnóstico XR" }
@@ -558,10 +558,13 @@ class MainActivity : ComponentActivity(), UiActions {
     private fun headsetClick() {
         if(floating.gazeGrabbed>=0) { floating.finishGazeGrab();return }
         val now=System.nanoTime()/1_000_000
+        input.cancelHand(now)
         input.gaze(PointerAction.MOVE,now,gazeX,gazeY);input.gaze(PointerAction.DOWN,now,gazeX,gazeY);input.gaze(PointerAction.UP,now+1,gazeX,gazeY)
-        dwell.reset()
+        dwell.latch(floating.hovered?.id ?: -1)
     }
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    override fun onKeyDown(code: Int,event: KeyEvent): Boolean = handleHeadsetKey(event) || super.onKeyDown(code,event)
+    override fun onKeyUp(code: Int,event: KeyEvent): Boolean = handleHeadsetKey(event) || super.onKeyUp(code,event)
+    private fun handleHeadsetKey(event: KeyEvent): Boolean {
         if(::state.isInitialized && !state.phoneTools && ::preparation.isInitialized && preparation.visibility!=View.VISIBLE && !nativeDialog) {
             when(event.keyCode) {
                 KeyEvent.KEYCODE_ENTER,KeyEvent.KEYCODE_DPAD_CENTER,KeyEvent.KEYCODE_BUTTON_A,KeyEvent.KEYCODE_SPACE,KeyEvent.KEYCODE_VOLUME_UP->{if(event.action==KeyEvent.ACTION_UP)headsetClick();return true}
@@ -571,7 +574,7 @@ class MainActivity : ComponentActivity(), UiActions {
                 }
             }
         }
-        return super.dispatchKeyEvent(event)
+        return false
     }
     private fun createPreparation(): LinearLayout {
         return LinearLayout(this).apply {
