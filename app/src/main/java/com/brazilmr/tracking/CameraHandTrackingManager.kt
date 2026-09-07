@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.Image
 import androidx.camera.core.ImageProxy
 import com.brazilmr.core.performance.XrSettings
+import com.brazilmr.core.performance.CadenceLimiter
 import com.brazilmr.core.tracking.*
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -27,7 +28,7 @@ class CameraHandTrackingManager(
     @Volatile var thermalPaused = false
     @Volatile var sourceAspect = 4f / 3f; private set
     private var applied: XrSettings? = null
-    @Volatile private var lastFrame = 0L
+    private val cadence = CadenceLimiter()
     private val arBusy = AtomicBoolean(false)
     val modelAvailable = runCatching { context.assets.open("models/hand_landmarker.task").use { it.read() >= 0 } }.getOrDefault(false)
     override fun start() {
@@ -39,19 +40,19 @@ class CameraHandTrackingManager(
             if (!enabled || closed) return@execute
             try {
                 if (backend == null) backend = MediaPipeBackend(context)
-                lastFrame = 0L
+                cadence.reset()
                 updateStatus(TrackingStatus.RUNNING, "MediaPipe · pronto")
             } catch (error: Exception) { updateStatus(TrackingStatus.ERROR, error.message ?: "MediaPipe indisponível") }
         }
     }
     override fun stop() { enabled = false; mailbox.clear(); updateStatus(TrackingStatus.STOPPED, "Tracking pausado") }
-    private fun allowed(now: Long): Boolean = enabled && !closed && !thermalPaused && configuration.trackingEnabled && backend != null && now - lastFrame >= 1_000_000_000L / rateCap.coerceIn(5, 60)
+    private fun allowed(now: Long): Boolean = enabled && !closed && !thermalPaused && configuration.trackingEnabled && backend != null && cadence.ready(now, rateCap.coerceIn(5, 60))
     /** Called by CameraX on executor. Every frame is closed, including throttled and error paths. */
     fun analyze(image: ImageProxy) {
         try {
             val now = System.nanoTime()
             if (!allowed(now)) return
-            lastFrame = now
+            if (!cadence.acquire(now, rateCap.coerceIn(5, 60))) return
             val rotation = image.imageInfo.rotationDegrees
             sourceAspect = if (rotation % 180 == 0) image.width.toFloat() / image.height else image.height.toFloat() / image.width
             detect(buffers.rgba(image), image.width, image.height, rotation, now)
@@ -66,7 +67,7 @@ class CameraHandTrackingManager(
             executor.execute {
                 try {
                     if (allowed(now)) {
-                        lastFrame = now
+                        if (!cadence.acquire(now, rateCap.coerceIn(5, 60))) return@execute
                         sourceAspect = if (rotation % 180 == 0) image.width.toFloat() / image.height else image.height.toFloat() / image.width
                         detect(buffers.yuv(image), image.width, image.height, rotation, now)
                     }

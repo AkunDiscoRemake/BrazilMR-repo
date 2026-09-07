@@ -6,7 +6,7 @@ import com.brazilmr.core.filter.OneEuroFilter
 /** One analyzer thread owns this pipeline and all filters. */
 class HandTrackingPipeline(config: OneEuroConfig = OneEuroConfig()) {
     private val filters = Array(126) { OneEuroFilter(config) }
-    private val lastSeen = LongArray(2)
+    private val lastSeen = LongArray(2) { Long.MIN_VALUE }
     val output = HandFrame()
     var leftEnabled = true
     var rightEnabled = true
@@ -23,7 +23,7 @@ class HandTrackingPipeline(config: OneEuroConfig = OneEuroConfig()) {
             return
         }
         val offset = side * 63
-        if (lastSeen[side] == 0L || time - lastSeen[side] > 250_000_000L) {
+        if (lastSeen[side] == Long.MIN_VALUE || time - lastSeen[side] > 250_000_000L) {
             for (i in 0 until 63) filters[offset + i].reset()
         }
         for (i in 0 until 63) hand.landmarks[i] = filters[offset + i].filter(hand.landmarks[i], time)

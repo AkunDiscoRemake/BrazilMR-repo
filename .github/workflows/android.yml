@@ -30,7 +30,7 @@ jobs:
         run: |
           set +e
           set -o pipefail
-          ./gradlew --no-daemon :core:test :lua:test :app:assembleDebug :app:lintDebug 2>&1 | tee verification.log
+          ./gradlew --no-daemon :core:test :lua:test :app:assembleDebug :app:testDebugUnitTest :app:lintDebug 2>&1 | tee verification.log
           result=${PIPESTATUS[0]}
           set -e
           if [ "$result" -ne 0 ]; then
@@ -38,8 +38,9 @@ jobs:
               line="${line//'%'/'%25'}"
               line="${line//$'\r'/'%0D'}"
               printf '::error::%s\n' "$line"
-            done < <(grep -E '^e:|error:|^FAIL |^> |Execution failed|Could not|Exception' verification.log | head -40)
+            done < <(grep -E '^e:|[Ee]rror:|^FAIL |Execution failed|Could not|^> (A failure|There|Could|Process)' verification.log | head -40)
           fi
+          grep -E 'Brazil MR (Core|Lua):|[0-9]+ tests completed' verification.log | while IFS= read -r line; do printf '::notice::%s\n' "$line"; done || true
           exit "$result"
       - name: Verification reports
         if: always()
@@ -50,6 +51,9 @@ jobs:
           path: |
             verification.log
             app/build/reports/lint-results-debug.*
+            app/build/reports/tests/**
+            app/build/test-results/**
+            app/build/reports/ui/*.png
       - name: Debug APK
         uses: actions/upload-artifact@v4
         with:

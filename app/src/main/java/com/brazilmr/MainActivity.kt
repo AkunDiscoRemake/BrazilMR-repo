@@ -56,6 +56,7 @@ class MainActivity : ComponentActivity(), UiActions {
     private lateinit var uiCanvases: Array<Canvas>
     private val handler = Handler(Looper.getMainLooper())
     private val performance = PerformanceController()
+    private val renderCadence = CadenceLimiter()
     private val renderFrame = RenderFrame()
     private val inputProjection = SpatialProjection()
     private val uiCoordinates = FloatArray(2)
@@ -98,7 +99,7 @@ class MainActivity : ComponentActivity(), UiActions {
             val now = frameTimeNanos/1_000_000
             val budget = performance.update(state.settings, renderer.lastFrameMillis+previousUiMillis, state.thermalStatus, state.hands.left.present || state.hands.right.present, now)
             hands.rateCap = budget.trackingFps; hands.thermalPaused = budget.pauseTracking || nativeDialog
-            if (frameTimeNanos-lastDraw < 1_000_000_000L/budget.renderFps) return
+            if (!renderCadence.acquire(frameTimeNanos,budget.renderFps)) return
             lastDraw = frameTimeNanos
             val begin = System.nanoTime()
             try {
@@ -212,7 +213,7 @@ class MainActivity : ComponentActivity(), UiActions {
         },"BrazilMR-AppDiscovery").start()
     }
     override fun onResume() {
-        super.onResume();resumed=true;lastDraw=0
+        super.onResume();resumed=true;lastDraw=0;renderCadence.reset()
         glView.onResume();head.displayRotation=displayRotation();head.start();thermal.start()
         state.cameraGranted = ContextCompat.checkSelfPermission(this,Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         state.accessibilityEnabled=AccessibilityBridgeService.connected != null
@@ -278,6 +279,10 @@ class MainActivity : ComponentActivity(), UiActions {
         val eye = if(inputProjection.sbs && event.source != InputSource.HAND && event.x >= .5f) 1 else 0
         val x = if(inputProjection.sbs && event.source != InputSource.HAND) event.x*2-eye else event.x
         val inside=inputProjection.rayToUi(x,event.y,eye,uiCoordinates)
+        if (!uiCoordinates[0].isFinite() || !uiCoordinates[1].isFinite()) {
+            if(event.action==PointerAction.UP || event.action==PointerAction.CANCEL) scene.pointer(PointerAction.CANCEL,scene.lastPointerX,scene.lastPointerY,event.timeMillis,event.source.name.lowercase())
+            input.hovered=false;return
+        }
         // rayToUi still supplies the plane intersection outside its bounds, so an ongoing drag can clamp gracefully.
         if(inside || event.action != PointerAction.DOWN) scene.pointer(event.action,uiCoordinates[0],uiCoordinates[1],event.timeMillis,event.source.name.lowercase())
         input.hovered=inside && scene.pointerOnUi
@@ -296,6 +301,7 @@ class MainActivity : ComponentActivity(), UiActions {
         if(renderFrame.cursorVisible) {
             renderer.readProjection(inputProjection)
             inputProjection.rayToUi(input.cursorX,input.cursorY,0,uiCoordinates)
+            renderFrame.cursorVisible=uiCoordinates[0].isFinite() && uiCoordinates[1].isFinite()
             renderFrame.cursorX=uiCoordinates[0];renderFrame.cursorY=uiCoordinates[1];renderFrame.cursorState=input.cursorState.ordinal
         }
         scene.fillExternalLayers(renderFrame)

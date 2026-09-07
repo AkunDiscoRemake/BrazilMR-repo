@@ -39,7 +39,7 @@ class GunGestureDetector(
             }
             GunState.TRIGGERING -> when {
                 timeMillis - lastGoodBase > 220 -> reset()
-                f.indexExtended -> transition(GunState.ARMED, timeMillis)
+                !f.indexCurled -> transition(GunState.ARMED, timeMillis)
                 f.indexCurled && timeMillis - stateSince >= triggerMillis -> {
                     cooldownUntil = timeMillis + cooldownMillis
                     released = false

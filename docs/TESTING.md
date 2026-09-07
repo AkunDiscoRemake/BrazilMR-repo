@@ -4,13 +4,15 @@
 
 ```sh
 ./gradlew :core:test :lua:test
-./gradlew :app:assembleDebug :app:lintDebug
+./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 ./gradlew :app:connectedDebugAndroidTest
 ```
 
 As suites Core/Lua são programas Kotlin determinísticos executados pelas tarefas `verifyCore`/`verifyLua`, finalizadoras de `test`. Uma falha lança exceção e faz Gradle/CI falhar; nenhuma depende de JVM assertions estarem ativadas. `tools/test-core.sh` permite executar o núcleo com kotlinc/JDK sem SDK Android.
 
 Cobrem filtros, timestamps, perda/reacquisição, buffers, geometria sob rotação/translação/escala, debounce/cooldown, alternância MR/VR, recuperação da UI, touch versus hand, lifecycle e limites de janelas, ownership, identidade por código, default deny/revogação, plugins, térmico, projeção e inversa SBS, Lua/UI/eventos, namespaces/capabilities, referências retidas após revogação, quotas, código inválido, laços infinitos e isolamento da metatable de strings entre scripts.
+
+Os testes de UI usam Robolectric com Canvas/Skia nativo: renderizam todas as páginas, validam recovery, bloqueio modal, transparência/oclusão entre janelas e persistência de settings. Screenshots são gerados em `app/build/reports/ui` e publicados como artefatos de CI; não são screenshots de hand tracking real. Há também um smoke test instrumentado da Activity, executável em aparelho/emulador.
 
 Fixtures geométricas e timestamps sintéticos não comprovam precisão de MediaPipe em imagens reais.
 

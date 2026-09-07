@@ -40,6 +40,8 @@ app (Android / composição)
 
 A mailbox de mãos contém duas cópias prealocadas de 21 × 3 coordenadas por mão, geometria e metadados. O pipeline filtra landmarks de UI; a geometria de gesto usa world landmarks, ou coordenadas normalizadas com correção de aspecto como fallback. Sem mão, dados antigos não são usados como detecção atual.
 
+Defaults do filtro: minimum cutoff 2 Hz, beta 8 (coordenadas normalizadas) e derivative cutoff 1 Hz. Cutoff/beta são ajustáveis; não se usa um beta pensado para unidades em pixels.
+
 CameraX RGBA sem padding passa diretamente à inferência síncrona. Padding é compactado em buffer direto reutilizável. ARCore YUV é convertido uma vez em outro uso desse buffer. **MPImage ByteBuffer wrappers são fechados antes da reutilização.** Não se usa BitmapImageBuilder porque seu `close()` recicla o Bitmap; reutilizar esse Bitmap no frame seguinte seria incorreto.
 
 MediaPipe, CameraX, ARCore, drivers e seus resultados **ainda podem alocar/copiar internamente**. A implementação não promete zero alocações end-to-end.
@@ -74,6 +76,7 @@ Pausar a Activity interrompe câmera/inferência/render e sensores. Perda do con
 
 - Tracking configurável 5–60 FPS, 320/640/960 px solicitados; formato efetivo depende de CameraX/ARCore.
 - Sem mãos por 1,5 s: busca a 5 FPS. Perfis limitam o teto.
+- Cadência por deadlines acumulados: 24 FPS sobre câmera de 30 FPS não cai acidentalmente para 15 por arredondamento; a busca acelera imediatamente quando o teto muda.
 - Render alvo limitado pelo perfil; Choreographer não faz busy-wait. A taxa real é contada no renderer, não preenchida com o alvo.
 - Escala dinâmica reage ao tempo de trabalho observado com ajustes no máximo a cada segundo e passos assimétricos. Não é um medidor de tempo GPU via queries.
 - Severo: render ≤30 FPS, escala ≤.65, tracking ≤5 FPS e fallback de câmera espacial. Crítico: inferência é pausada, análise RGBA é desanexada e a câmera só permanece se necessária para passthrough.

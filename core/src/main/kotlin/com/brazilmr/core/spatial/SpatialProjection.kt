@@ -62,6 +62,7 @@ class SpatialProjection {
     }
     /** x/y are normalized within ONE eye; caller splits touch coordinates for SBS. */
     fun rayToUi(x: Float, y: Float, eye: Int, out: FloatArray): Boolean {
+        out[0] = Float.NaN; out[1] = Float.NaN
         if (!x.isFinite() || !y.isFinite()) return false
         if (!spatial) {
             val scale = planeWidth / 1.95f

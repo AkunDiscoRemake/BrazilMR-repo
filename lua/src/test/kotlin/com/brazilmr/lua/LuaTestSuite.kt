@@ -174,6 +174,19 @@ fun main() {
         h.success(); h.runtime.close()
         check(!h.runtime.running && h.host.ui.elements.isEmpty() && h.host.scenario.objects.isEmpty())
     }
+    test("Lua: pointer payload is local, typed, permission checked and revocable") {
+        val h=Harness("""
+            zxr.input.on('pointer', function(e)
+                assert(e.action == 'down' and e.source == 'hand')
+                assert(e.x > .49 and e.x < .51 and e.y > .24 and e.y < .26)
+                print('pointer received')
+            end)
+        """.trimIndent(), grants=setOf(Capability.INPUT))
+        h.success();h.runtime.emitPointer(.5f,.25f,"down","hand")
+        check(h.runtime.running && h.host.logs.count { it=="pointer received" }==1)
+        h.permissions.revokeAll(h.principal);h.runtime.emitPointer(.5f,.25f,"down","hand")
+        check(h.host.logs.count { it=="pointer received" }==1)
+    }
     println("\nBrazil MR Lua: $passed passed, $failed failed")
     check(failed == 0) { "$failed Lua tests failed" }
 }

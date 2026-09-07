@@ -1,14 +1,13 @@
 <resources>
-    <style name="Theme.BrazilMR" parent="android:style/Theme.Material.NoActionBar">
+    <style name="Base.Theme.BrazilMR" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowLightNavigationBar">false</item>
         <item name="android:statusBarColor">#09080E</item>
         <item name="android:navigationBarColor">#09080E</item>
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:colorAccent">#AA80FF</item>
         <item name="android:windowBackground">#09080E</item>
-        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
         <item name="android:windowNoTitle">true</item>
     </style>
+    <style name="Theme.BrazilMR" parent="Base.Theme.BrazilMR" />
 </resources>

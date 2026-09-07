@@ -236,6 +236,29 @@ fun main() {
         repeat(31) { s.spawn("a", 0f, 0f, -2f, .1f, 0) }; rejects { s.spawn("a", 0f, 0f, -2f, .1f, 0) }
         s.clear("a"); check(s.objects.isEmpty())
     }
+    test("Cadence: 24 FPS from 30 FPS camera, no quantization down to 15") {
+        val cadence = CadenceLimiter(); var count = 0
+        for (frame in 0 until 300) if (cadence.acquire(frame * 1_000_000_000L / 30, 24)) count++
+        check(count in 239..241) { "Accepted $count instead of ~240 frames" }
+    }
+    test("Cadence: faster reacquisition, nonmonotonic timestamps, long stalls") {
+        val cadence = CadenceLimiter(); check(cadence.acquire(0,5))
+        check(!cadence.acquire(0,5)); check(!cadence.acquire(-1,5))
+        check(cadence.acquire(50_000_000,24))
+        check(cadence.acquire(10_000_000_000,24)); check(!cadence.acquire(10_000_000_001,24))
+        cadence.reset(); check(cadence.acquire(0,24))
+    }
+    test("One Euro defaults: responsive to normalized hand motion, not beta tuned for pixel units") {
+        val f=OneEuroFilter();var filtered=0f;var raw=0f
+        for(i in 0..24) { raw=.1f+i/24f*.5f;filtered=f.filter(raw,i*1_000_000_000L/24) }
+        check(raw-filtered < .025f) { "Excessive normalized lag: ${raw-filtered}" }
+    }
+    test("Projection: behind-camera/invalid ray clears previous output") {
+        val p=SpatialProjection().apply { spatial=true }; val uv=floatArrayOf(.2f,.3f)
+        p.orientation.set(0f,1f,0f,0f)
+        check(!p.rayToUi(.5f,.5f,0,uv));check(uv[0].isNaN())
+        check(!p.rayToUi(Float.NaN,0f,0,uv))
+    }
     println("\nBrazil MR Core: $passed passed, $failed failed")
     check(failed == 0) { "$failed core tests failed" }
 }

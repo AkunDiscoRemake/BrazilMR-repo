@@ -289,7 +289,7 @@ class XrUiScene(val state: PlatformState, private val actions: UiActions) {
                 item("Mão direita", onOff(s.rightHand), "Indicador, pinça e VR / MR", toggle = { set(s.copy(rightHand = !s.rightHand)) })
                 item("Mão esquerda", onOff(s.leftHand), "Ocultar e recuperar interface", toggle = { set(s.copy(leftHand = !s.leftHand)) })
                 item("Minimum cutoff", fmt(s.filter.minimumCutoff), "One Euro · Hz", { set(s.copy(filter = s.filter.copy(minimumCutoff = (s.filter.minimumCutoff-.2f).coerceAtLeast(.2f)))) }, { set(s.copy(filter = s.filter.copy(minimumCutoff = (s.filter.minimumCutoff+.2f).coerceAtMost(8f)))) })
-                item("Beta", fmt(s.filter.beta, 2), "Mais beta = mais responsividade", { set(s.copy(filter = s.filter.copy(beta = (s.filter.beta-.02f).coerceAtLeast(0f)))) }, { set(s.copy(filter = s.filter.copy(beta = (s.filter.beta+.02f).coerceAtMost(1f)))) })
+                item("Beta", fmt(s.filter.beta, 2), "Mais beta = mais responsividade", { set(s.copy(filter = s.filter.copy(beta = (s.filter.beta-.5f).coerceAtLeast(0f)))) }, { set(s.copy(filter = s.filter.copy(beta = (s.filter.beta+.5f).coerceAtMost(20f)))) })
                 item("Derivative cutoff", fmt(s.filter.derivativeCutoff), "One Euro · Hz", { set(s.copy(filter = s.filter.copy(derivativeCutoff = (s.filter.derivativeCutoff-.2f).coerceAtLeast(.2f)))) }, { set(s.copy(filter = s.filter.copy(derivativeCutoff = (s.filter.derivativeCutoff+.2f).coerceAtMost(8f)))) })
                 item("Inverter identificação", onOff(s.swapHands), "Calibração de lateralidade da câmera", toggle = { set(s.copy(swapHands = !s.swapHands)) })
             }

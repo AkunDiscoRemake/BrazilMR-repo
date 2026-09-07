@@ -4,7 +4,7 @@ import kotlin.math.PI
 import kotlin.math.abs
 
 /** Casiez et al., CHI 2012. Cutoffs in Hz, beta in Hz / (units / second). */
-data class OneEuroConfig(val minimumCutoff: Float = 1.7f, val beta: Float = 0.08f, val derivativeCutoff: Float = 1f) {
+data class OneEuroConfig(val minimumCutoff: Float = 2f, val beta: Float = 8f, val derivativeCutoff: Float = 1f) {
     init {
         require(minimumCutoff.isFinite() && minimumCutoff > 0f)
         require(beta.isFinite() && beta >= 0f)
