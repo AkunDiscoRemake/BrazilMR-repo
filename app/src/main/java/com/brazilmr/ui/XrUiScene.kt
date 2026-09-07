@@ -102,7 +102,7 @@ class XrUiScene(val state: PlatformState, private val actions: UiActions) {
     }
     private fun home() {
         val mr = state.session.mode == EnvironmentMode.MR
-        overviewCard(246f, "AMBIENTE", if (mr) "Mixed Reality" else "Virtual Reality", if (state.cameraActive && mr) "Passthrough pela câmera" else if (mr) "Câmera ainda não autorizada" else "Espaço virtual · ${if (state.settings.sbs) "dois olhos" else "mono"}", if (mr) "camera" else "vr") {
+        overviewCard(246f, "AMBIENTE", if (mr) "Mixed Reality" else "Virtual Reality", if (state.cameraActive && mr) "Passthrough pela câmera" else if (mr) (if (state.cameraGranted) "Passthrough pausado" else "Câmera ainda não autorizada") else "Espaço virtual · ${if (state.settings.sbs) "dois olhos" else "mono"}", if (mr) "camera" else "vr") {
             if (!state.cameraGranted) actions.requestCamera() else actions.toggleMode()
         }
         val hands = (if (state.hands.left.present) 1 else 0) + (if (state.hands.right.present) 1 else 0)
@@ -434,11 +434,21 @@ class XrUiScene(val state: PlatformState, private val actions: UiActions) {
         text("Mão esquerda fechada por 5 s reabre a UI.", 978f, 695f, 16f, MUTED)
         button("quick.all", "Todas as configurações", 973f, 727f, 549f, 45f, "settings") { state.navigate(Page.SETTINGS) }
     }
-    fun pointer(action: PointerAction, u: Float, v: Float, time: Long) {
+    fun pointer(action: PointerAction, u: Float, v: Float, time: Long, source: String = "touch") {
         lastPointerX = u; lastPointerY = v
         val x = u*WIDTH; val y = v*HEIGHT
         val target = hitTest(x,y)
         pointerOnUi = target != null
+        val receiver = if (action == PointerAction.DOWN) target else captured ?: target
+        if (receiver != null && receiver.windowId >= 0) {
+            val window = state.windows.get(receiver.windowId)
+            if (window != null) {
+                val content = contentBounds(window)
+                if (content.contains(x,y) || (captured != null && (action == PointerAction.UP || action == PointerAction.CANCEL))) {
+                    actions.windowPointer(window.id, ((x-content.left)/content.width()).coerceIn(0f,1f), ((y-content.top)/content.height()).coerceIn(0f,1f), action.name.lowercase(), source)
+                }
+            }
+        }
         if (hover != (target?.id ?: -1)) { hover = target?.id ?: -1; state.dirty = true }
         when(action) {
             PointerAction.DOWN -> {

@@ -1,3 +1,9 @@
+import java.io.File
+import java.net.URI
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
+
 plugins { id("com.android.application"); kotlin("android") }
 android {
     namespace = "com.brazilmr"
@@ -50,8 +56,8 @@ val prepareHandModel by tasks.registering {
     outputs.file(model)
     onlyIf { providers.gradleProperty("skipHandModel").orNull != "true" }
     doLast {
-        fun digest(file: java.io.File): String {
-            val hash = java.security.MessageDigest.getInstance("SHA-256")
+        fun digest(file: File): String {
+            val hash = MessageDigest.getInstance("SHA-256")
             file.inputStream().buffered().use { stream ->
                 val buffer = ByteArray(65536)
                 while (true) { val count = stream.read(buffer); if (count < 0) break; hash.update(buffer, 0, count) }
@@ -60,13 +66,13 @@ val prepareHandModel by tasks.registering {
         }
         if (!model.exists()) {
             model.parentFile.mkdirs()
-            val temp = java.io.File(model.parentFile, "hand_landmarker.task.part")
+            val temp = File(model.parentFile, "hand_landmarker.task.part")
             try {
-                val connection = java.net.URI("https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task").toURL().openConnection()
+                val connection = URI("https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task").toURL().openConnection()
                 connection.connectTimeout = 15000; connection.readTimeout = 60000
                 connection.getInputStream().buffered().use { source -> temp.outputStream().buffered().use { destination -> source.copyTo(destination) } }
                 check(digest(temp) == checksum) { "Checksum inválido para o modelo oficial MediaPipe" }
-                java.nio.file.Files.move(temp.toPath(), model.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                Files.move(temp.toPath(), model.toPath(), StandardCopyOption.REPLACE_EXISTING)
             } finally { temp.delete() }
         }
         check(digest(model) == checksum) { "Modelo modificado. Remova $model e execute prepareHandModel novamente." }

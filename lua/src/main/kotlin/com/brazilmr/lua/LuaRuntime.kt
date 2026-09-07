@@ -20,7 +20,7 @@ class LuaRuntime(
     private val callbacks = LinkedHashMap<String, MutableList<LuaValue>>()
     private val api = LuaTable()
     private var subscriptions = 0
-    var running = false; private set
+    @Volatile var running = false; private set
     var lastError: String? = null; private set
 
     init {
@@ -54,7 +54,7 @@ class LuaRuntime(
             budget.begin(500); running = true; chunk.call()
         }
     }
-    fun emit(event: String, payload: LuaValue = LuaValue.NIL) {
+    private fun emitValue(event: String, payload: LuaValue) {
         if (!running) return
         val listeners = callbacks[event] ?: return
         guarded {
@@ -64,8 +64,17 @@ class LuaRuntime(
             for (i in 0 until count) listeners[i].call(payload)
         }
     }
-    fun emit(event: String, value: String) = emit(event, LuaValue.valueOf(value))
-    fun emit(event: String, value: Double) = emit(event, LuaValue.valueOf(value))
+    fun emit(event: String) = emitValue(event, LuaValue.NIL)
+    fun emit(event: String, value: String) = emitValue(event, LuaValue.valueOf(value))
+    fun emit(event: String, value: Double) = emitValue(event, LuaValue.valueOf(value))
+    fun emit(event: String, value: Boolean) = emitValue(event, LuaValue.valueOf(value))
+    fun emitPointer(x: Float, y: Float, action: String, source: String) {
+        if (!permissions.has(principal, Capability.INPUT)) return
+        val payload = LuaTable()
+        payload.set("x", LuaValue.valueOf(x.toDouble())); payload.set("y", LuaValue.valueOf(y.toDouble()))
+        payload.set("action", action); payload.set("source", source)
+        emitValue("input.pointer", payload)
+    }
     fun buttonClicked(id: Int) {
         if (!running) return
         host.sync { host.ui.owned(principal.id, id) }

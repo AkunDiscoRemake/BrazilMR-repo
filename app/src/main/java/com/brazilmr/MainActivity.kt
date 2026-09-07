@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity(), UiActions {
     private var nativeDialog = false
     private var lastDraw = 0L; private var lastStats = 0L; private var lastLuaTick = 0L
     private var lastSequence = Long.MIN_VALUE
+    private var lastWindowRevision = -1L
     private var lastRight = false; private var lastLeft = false
     private var previousUiMillis = 0f
     private var cameraKey = ""
@@ -110,6 +111,7 @@ class MainActivity : ComponentActivity(), UiActions {
                     state.accessibilityConsent = AccessibilitySession.userConsented
                     state.dirty = true; lastStats = now
                 }
+                if(state.windows.revision!=lastWindowRevision) { lua.windowStatesChanged();lastWindowRevision=state.windows.revision }
                 if (!nativeDialog && now-lastLuaTick >= 100) { lua.tick(now/1000.0); lastLuaTick = now }
                 if (state.dirty) {
                     val slot = textureExchange.beginWrite()
@@ -139,7 +141,7 @@ class MainActivity : ComponentActivity(), UiActions {
             }
         } }
         hands.configuration = state.settings
-        ar = ArCoreEnvironment(this,hands,{ status -> handler.post { if(!destroyed) { state.spatialStatus=status;state.dirty=true } } },{ error -> handler.post {
+        ar = ArCoreEnvironment(this,hands,{ status -> handler.post { if(!destroyed) { state.spatialStatus=status;state.dirty=true;if(::lua.isInitialized) lua.environmentChanged(status) } } },{ error -> handler.post {
             if(!destroyed) { state.notice("Tracking espacial interrompido",error); state.saveSettings(state.settings.copy(spatialTracking=false)); configureCamera(true) }
         } })
         glView = GLSurfaceView(this).apply { setEGLContextClientVersion(2); preserveEGLContextOnPause=true }
@@ -277,7 +279,7 @@ class MainActivity : ComponentActivity(), UiActions {
         val x = if(inputProjection.sbs && event.source != InputSource.HAND) event.x*2-eye else event.x
         val inside=inputProjection.rayToUi(x,event.y,eye,uiCoordinates)
         // rayToUi still supplies the plane intersection outside its bounds, so an ongoing drag can clamp gracefully.
-        if(inside || event.action != PointerAction.DOWN) scene.pointer(event.action,uiCoordinates[0],uiCoordinates[1],event.timeMillis)
+        if(inside || event.action != PointerAction.DOWN) scene.pointer(event.action,uiCoordinates[0],uiCoordinates[1],event.timeMillis,event.source.name.lowercase())
         input.hovered=inside && scene.pointerOnUi
     }
     private fun fillRenderFrame(budget: RenderBudget) {
@@ -453,7 +455,11 @@ class MainActivity : ComponentActivity(), UiActions {
         captureWindowId?.let { state.windows.get(it)?.status=message;if(::renderer.isInitialized) renderer.removeAppSurface(it) }
         captureSurface=null;window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE);state.dirty=true
     }
-    override fun clickLuaElement(id: Int) { lua.click(id) }
+    override fun clickLuaElement(id: Int) {
+        lua.click(id)
+        state.elements.elements.firstOrNull { it.id==id }?.let { lua.input(it.windowId) }
+    }
+    override fun windowPointer(id: Int,x: Float,y: Float,action: String,source: String) { lua.pointer(id,x,y,action,source) }
     override fun externalGesture(id: Int,x0: Float,y0: Float,x1: Float,y1: Float,duration: Long) {
         appBridge.gesture(id,x0,y0,x1,y1,if(abs(x1-x0)+abs(y1-y0)<.01f) min(duration,600) else duration)?.let { state.notice("Input não encaminhado",it) }
     }

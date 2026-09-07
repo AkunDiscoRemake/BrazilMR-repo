@@ -23,6 +23,9 @@ class AndroidLuaController(
         @Volatile var runtime: LuaRuntime? = null
         @Volatile var cancelled = false
         val tickPending = AtomicBoolean(false)
+        val movePending = AtomicBoolean(false)
+        var focused = false
+        var minimized = false
     }
     private val slots = ConcurrentHashMap<Int, Slot>()
     private val worker = ThreadPoolExecutor(1,1,0,TimeUnit.MILLISECONDS,ArrayBlockingQueue(32), { job -> Thread(job,"BrazilMR-Lua") }, ThreadPoolExecutor.AbortPolicy())
@@ -44,7 +47,10 @@ class AndroidLuaController(
     }
     fun run(app: ScriptApp) {
         val existing = slots.values.firstOrNull { it.app.principal == app.principal && !it.cancelled }
-        if (existing != null) { state.windows.focus(existing.windowId); state.dirty = true; return }
+        if (existing != null) {
+            if (existing.runtime?.running != false) { state.windows.focus(existing.windowId); state.dirty = true; return }
+            state.windows.close(existing.windowId); closeWindow(existing.windowId)
+        }
         check(slots.size < 3) { "Máximo de três runtimes Lua simultâneos" }
         state.permissions.register(app.principal,app.requested)
         val window = state.windows.open(app.id,app.title,app.type,WindowContent.LUA,app.principal.id)
@@ -70,6 +76,34 @@ class AndroidLuaController(
         val owner = state.windows.get(windowId)?.owner ?: return
         val slot = slots.values.firstOrNull { it.app.principal.id == owner } ?: return
         submit { if (!slot.cancelled) slot.runtime?.emit("input.click") }
+    }
+    fun pointer(windowId: Int, x: Float, y: Float, action: String, source: String) {
+        val owner = state.windows.get(windowId)?.owner ?: return
+        val slot = slots.values.firstOrNull { it.app.principal.id == owner } ?: return
+        val move = action == "move"
+        if (move && !slot.movePending.compareAndSet(false,true)) return
+        val accepted = submit {
+            try { if (!slot.cancelled) slot.runtime?.emitPointer(x,y,action,source) }
+            finally { if (move) slot.movePending.set(false) }
+        }
+        if (!accepted) {
+            if (move) slot.movePending.set(false)
+            else { slot.runtime?.cancel(); state.log("Input Lua saturado; runtime interrompido para não perder release/cancel.") }
+        }
+    }
+    fun windowStatesChanged() {
+        for (slot in slots.values) {
+            val window = state.windows.get(slot.windowId) ?: continue
+            val focus = state.windows.windows.any { it.owner == slot.app.principal.id && it.focused }
+            if (focus != slot.focused) { slot.focused=focus; submit { slot.runtime?.emit("window.focus",focus) } }
+            if (window.minimized != slot.minimized) {
+                slot.minimized=window.minimized; val minimized=slot.minimized
+                submit { slot.runtime?.emit("window.minimized",minimized) }
+            }
+        }
+    }
+    fun environmentChanged(status: String) {
+        for (slot in slots.values) submit { slot.runtime?.emit("scenario.tracking",status); slot.runtime?.emit("system.spatial",status) }
     }
     fun modeChanged(mode: String) { for (slot in slots.values) submit { if (!slot.cancelled) slot.runtime?.emit("system.mode",mode) } }
     fun permissionsChanged(principal: Principal) {

@@ -27,5 +27,6 @@ interface UiActions {
     fun windowResized(id: Int)
     fun editNotes(id: Int)
     fun clickLuaElement(id: Int)
+    fun windowPointer(id: Int, x: Float, y: Float, action: String, source: String)
     fun externalGesture(id: Int, x0: Float, y0: Float, x1: Float, y1: Float, duration: Long)
 }
