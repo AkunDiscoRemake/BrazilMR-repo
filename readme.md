@@ -1,347 +1,62 @@
-🇧🇷 BrazilMR V2
+# Brazil MR
 
-Uma plataforma VR/MR para Android, feita para transformar smartphones em uma experiência espacial acessível.
+**Um smartphone. Um espaço XR.** Plataforma Android nativa experimental, preta e roxa, construída com desempenho, baixa latência e limites de segurança explícitos.
 
-BrazilMR V2 é uma plataforma experimental de Virtual Reality (VR) e Mixed Reality (MR) para Android, projetada para funcionar com smartphones comuns, incluindo dispositivos usados com headsets do tipo Cardboard/VR Box.
+> **Foundation 0.1 — não é uma release de produção.** Esta reconstrução parte de um repositório que continha apenas uma especificação. Há código nativo, núcleo testável, janelas, MediaPipe, renderização GLES/SBS e SDK Lua; compatibilidade de câmera, ARCore, headsets e apps externos requer validação em dispositivos reais. Não há promessa de executar qualquer app Android dentro de VR.
 
-O projeto combina VR estereoscópico, head tracking, 6DoF computacional, hand tracking, Web Apps e um navegador próprio em uma única experiência.
+## Compilar
 
-«🚧 Status: Em desenvolvimento
+Android Studio Ladybug ou mais recente, **JDK 17**, SDK Android **35**, acesso a Google Maven e Maven Central.
 
-A primeira versão é focada na infraestrutura da plataforma. Jogos serão adicionados somente depois da primeira release.»
+```sh
+./gradlew :core:test :lua:test
+./gradlew :app:assembleDebug
+# app/build/outputs/apk/debug/app-debug.apk
+```
 
----
+O build Android baixa o modelo Hand Landmarker oficial (7,8 MB), verifica SHA-256 e o mantém fora do Git. Para preparar manualmente: `python3 tools/fetch_hand_model.py`. Para desenvolver a UI sem baixar o modelo: `./gradlew -PskipHandModel=true :app:assembleDebug`; nesse caso, sem um modelo local válido o tracking informa **NO_MODEL**, não dados simulados.
 
-✨ Recursos
+```sh
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:lintDebug
+./gradlew :app:connectedDebugAndroidTest  # aparelho/emulador conectado
+```
 
-🥽 VR
+## Experimentar
 
-- Renderização estereoscópica
-- Side-by-side
-- Ajuste de IPD
-- Ajuste de FOV
-- Correção de distorção para lentes
-- Head tracking
-- Suporte a 3DoF
-- 6DoF computacional quando possível
-- Recenter de orientação
-- Recuperação automática de tracking
+1. Abra o app em paisagem. Notas e Relógio demonstram o workspace sem pedir acesso à câmera.
+2. Permita a câmera na Central de permissões. Imagens são processadas localmente; o app não solicita acesso à internet.
+3. Mão direita: indicador aponta; pinça pressiona/solta e arrasta. Touch utiliza o mesmo sistema de input.
+4. Gesto de arma direito: estabilize a pose e dobre o indicador para alternar MR/VR. Há cooldown e rearme obrigatório.
+5. Gesto de arma esquerdo: oculta a UI. Punho esquerdo fechado por cerca de cinco segundos a reposiciona e reabre. **Toque na tela também recupera uma UI oculta.**
+6. Em Apps, abra janelas internas, exemplos Lua ou tente um app Android compatível. Arraste o título, redimensione pelo canto, minimize, foque, organize e feche.
+7. Em Developer, execute os exemplos, edite um rascunho e consulte a API. Capabilities são concedidas por app/hash na Central, nunca pelo próprio script.
 
-🖐️ Hand Tracking
+Use VR sentado, em uma área segura. Passthrough monocular tem latência e não substitui visão direta. Interrompa ao sentir desconforto ou aquecimento.
 
-Sistema de hand tracking otimizado para dispositivos móveis.
+## Arquitetura
 
-Detecta:
+- **`:core`** — landmarks, mailbox, One Euro, geometria 3D, máquinas de gestos, input, WindowManagerXR, sessão MR/VR, projeção, capabilities, plugins e política térmica. Sem dependência Android ou MediaPipe.
+- **`:lua`** — LuaJ com superfície de API restrita, ownership, permissões revogáveis e quotas. UI de cada app permanece dentro de suas janelas.
+- **`:app`** — CameraX/MediaPipe, ARCore opcional, sensores, GLES 2/SBS, UI Canvas com nós de acessibilidade, displays virtuais, Accessibility Bridge, MediaProjection e ferramentas de desenvolvimento.
+- **`sdk/`** — exemplos e referência de API incorporados ao aplicativo.
 
-- Mão esquerda e direita
-- Palma
-- Dedos
-- Articulações
-- Orientação das mãos
-- Gestos básicos
+O histórico anterior e as decisões de reaproveitamento estão em [docs/AUDIT.md](docs/AUDIT.md). A visão original foi preservada em [docs/VISION.md](docs/VISION.md).
 
-Gestos planejados:
+## Limites essenciais
 
-- ☝️ Apontar
-- 🤏 Pinça
-- ✋ Mão aberta
-- ✊ Mão fechada
-- Selecionar
-- Arrastar
-- Voltar
-- Abrir menu
+- Displays virtuais e execução de Activities dependem das políticas do Android/OEM e do app. Falhas são reportadas; abrir fora do XR é uma alternativa explícita.
+- Accessibility não é injeção privilegiada de input: exige habilitação no Android, autorização de sessão, app correto e foco no display correto. Input em displays secundários requer Android 11+.
+- MediaProjection exige consentimento novo por sessão. É **compartilhamento**, não execução independente. `FLAG_SECURE` é respeitado.
+- SBS duplica a câmera monocular, mas projeta a UI com separação geométrica de olhos. Não produz profundidade estéreo real da câmera nem calibração óptica universal de headsets.
+- ARCore é opcional e usa a câmera de forma exclusiva. Sem ele há orientação 3DoF por sensores, não 6DoF inventado.
+- O runtime Lua é para desenvolvimento local. Não há carregamento remoto de código, DEX, bibliotecas nativas, `io`, `os`, `luajava`, `require`, shell ou rede. `unsafe_execution` concede somente operações globais nomeadas da plataforma, não privilégios Android.
+- Quotas de instruções, tempo, strings, widgets e tabelas não são isolamento rígido de heap/processo. Uma comunidade com scripts hostis exige processo isolado e auditoria adicionais antes de distribuição.
 
-O sistema utiliza processamento adaptativo para reduzir latência, consumo de bateria e carga de CPU/GPU.
+## Verificação e documentação
 
----
+Consulte [docs/TESTING.md](docs/TESTING.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/ANDROID_LIMITATIONS.md](docs/ANDROID_LIMITATIONS.md) e [sdk/API_REFERENCE.md](sdk/API_REFERENCE.md).
 
-🌎 Mixed Reality
+A CI em `.github/workflows/android.yml` executa testes do núcleo/Lua, build debug e lint. Não substitui testes em hardware. APKs, modelos e caches não são versionados.
 
-O BrazilMR V2 utiliza a câmera do smartphone para criar experiências de MR.
-
-Inclui:
-
-- Camera passthrough
-- Objetos virtuais no ambiente real
-- Tracking espacial
-- Interação com mãos
-- Calibração espacial
-- Recentragem
-- Recuperação de tracking
-
-Quando determinado recurso não estiver disponível no dispositivo, o sistema deve utilizar automaticamente um fallback apropriado.
-
----
-
-🌐 Navegador
-
-O BrazilMR V2 possui um navegador integrado pensado para utilização em VR/MR.
-
-Recursos
-
-- Múltiplas abas
-- Favoritos
-- Histórico
-- Downloads
-- Pesquisa
-- Zoom
-- Navegação por gestos
-- Teclado
-- Gerenciamento de permissões
-- Limpeza de dados
-
-🕵️ Modo Anônimo
-
-O navegador possui um modo anônimo que evita manter localmente:
-
-- Histórico
-- Cookies persistentes da sessão
-- Formulários
-- Dados temporários após o encerramento das abas anônimas
-
-O modo anônimo não significa anonimato completo na Internet.
-
----
-
-📱 Web Apps
-
-Sites podem ser instalados como aplicativos dentro do BrazilMR V2.
-
-Cada Web App pode possuir:
-
-- Nome
-- Ícone
-- URL
-- Armazenamento isolado
-- Permissões
-- Tela própria
-- Configurações individuais
-
-Exemplo:
-
-Web Apps
-├── YouTube
-├── Google
-├── Discord
-├── Roblox
-└── Meus aplicativos
-
-A arquitetura também foi planejada para futuras experiências WebXR.
-
----
-
-🎮 Input
-
-O BrazilMR V2 pode trabalhar com diferentes métodos de entrada:
-
-- 👁️ Head tracking
-- 🖐️ Hand tracking
-- 📱 Touch
-- 🎮 Gamepads
-- 📡 Controles Bluetooth
-
-O sistema de input foi projetado para permitir que diferentes métodos sejam utilizados sem modificar o núcleo da aplicação.
-
----
-
-⚡ Performance
-
-Performance é uma das prioridades do BrazilMR V2.
-
-O sistema possui arquitetura preparada para:
-
-- Resolução dinâmica
-- FPS configurável
-- Frame pacing
-- Processamento assíncrono
-- Redução de latência
-- Controle de carga de CPU/GPU
-- Gerenciamento térmico
-- Suspensão de processos inativos
-
-Modos
-
-Performance Mode
-
-Prioriza:
-
-- FPS
-- Latência
-- Responsividade
-
-Battery Saver
-
-Prioriza:
-
-- Autonomia
-- Menor temperatura
-- Menor consumo
-
----
-
-🧠 Tracking
-
-O sistema pode combinar diferentes fontes de informação:
-
-Camera
-   │
-   ├── Visual Tracking
-   │
-   └── Hand Tracking
-          │
-          ▼
-      Tracking Engine
-          ▲
-          │
-Sensors ──┘
-   │
-   ├── Gyroscope
-   ├── Accelerometer
-   └── Magnetometer
-
-Quando possível, o sistema combina sensores e visão computacional para melhorar estabilidade e precisão.
-
-Se o 6DoF não estiver disponível, o BrazilMR V2 pode utilizar 3DoF automaticamente.
-
----
-
-🏗️ Arquitetura
-
-BrazilMR V2
-│
-├── Core
-│
-├── VR Engine
-│
-├── MR Engine
-│
-├── Tracking
-│   ├── Head Tracking
-│   ├── 3DoF
-│   ├── 6DoF
-│   └── Hand Tracking
-│
-├── Input
-│   ├── Touch
-│   ├── Bluetooth
-│   ├── Gamepad
-│   └── Hand Input
-│
-├── Browser
-│
-├── Web Apps
-│
-├── Launcher
-│
-├── Settings
-│
-├── Performance
-│
-└── Future Games API
-
-A arquitetura é modular para permitir que novos recursos sejam adicionados sem precisar reescrever o núcleo da plataforma.
-
----
-
-🚀 Roadmap
-
-V1 — Foundation
-
-- [ ] Launcher VR/MR
-- [ ] VR estereoscópico
-- [ ] Head tracking
-- [ ] 3DoF
-- [ ] 6DoF computacional
-- [ ] Hand tracking otimizado
-- [ ] Input system
-- [ ] Navegador
-- [ ] Modo anônimo
-- [ ] Web Apps
-- [ ] Mixed Reality
-- [ ] Calibração
-- [ ] Sistema de performance
-- [ ] Configurações
-- [ ] Estabilidade e otimização
-
-V2 — Games & XR
-
-- [ ] Sistema de jogos
-- [ ] API para jogos
-- [ ] Suporte WebXR aprimorado
-- [ ] Experiências interativas
-- [ ] Multiplayer
-- [ ] SDK para desenvolvedores
-
-V3 — Ecosystem
-
-- [ ] BrazilMR SDK
-- [ ] Ferramentas de criação
-- [ ] Repositório de aplicativos
-- [ ] Tracking avançado
-- [ ] Recursos sociais
-- [ ] Ecossistema de desenvolvedores
-
----
-
-📦 Requisitos
-
-O BrazilMR V2 foi projetado para Android moderno e tenta utilizar os recursos disponíveis no dispositivo.
-
-Recursos detectados automaticamente:
-
-- Giroscópio
-- Acelerômetro
-- Magnetômetro
-- Câmera
-- GPU
-- Taxa de atualização
-- Resolução
-- APIs disponíveis
-
-Dispositivos sem determinados sensores continuarão funcionando com recursos reduzidos quando possível.
-
----
-
-🔧 Filosofia do projeto
-
-O BrazilMR V2 busca tornar VR/MR mais acessível, utilizando hardware que muitas pessoas já possuem.
-
-Em vez de exigir imediatamente um headset dedicado, a plataforma busca aproveitar:
-
-📱 Smartphone + 🥽 Headset simples + 🖐️ Tracking + 🌐 Web = XR acessível
-
-A prioridade é construir uma base sólida primeiro.
-
-Jogos ficam para depois. A plataforma vem primeiro.
-
----
-
-🤝 Contribuindo
-
-Contribuições são bem-vindas.
-
-Áreas que podem receber contribuições:
-
-- Tracking
-- Hand tracking
-- Renderização
-- Performance
-- Android
-- Web Apps
-- Browser
-- UI/UX
-- Mixed Reality
-- Documentação
-- Testes em diferentes dispositivos
-
----
-
-📜 Licença
-
-A licença será definida conforme o desenvolvimento do projeto.
-
----
-
-🇧🇷 BrazilMR V2
-
-VR/MR acessível. Android como plataforma. O smartphone como headset.
+A licença do projeto ainda não foi definida pelo mantenedor; dependências e modelos mantêm suas próprias licenças e termos.

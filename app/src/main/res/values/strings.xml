@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Brazil MR</string>
+    <string name="accessibility_label">Brazil MR · Ponte de interação</string>
+    <string name="accessibility_description">Opcional. Converte apenas seus cliques e arrastos explícitos em gestos nos apps e displays autorizados nesta sessão. Verifica o app de destino; não coleta textos, senhas ou histórico. Nenhuma operação autônoma é executada. Ative somente se desejar controlar apps compatíveis com o ponteiro XR.</string>
+    <string name="capture_channel">Compartilhamento XR</string>
+    <string name="capture_notification">Compartilhando uma tela com Brazil MR</string>
+    <string name="capture_stop">Parar compartilhamento</string>
+</resources>

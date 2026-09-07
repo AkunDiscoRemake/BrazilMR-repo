@@ -1,0 +1,7 @@
+[
+  {"id":"hello-window","title":"Olá, espaço","type":"WINDOW","entry":"examples/hello-window.lua","permissions":[]},
+  {"id":"orbit-game","title":"Orbit","type":"GAME","entry":"examples/orbit-game.lua","permissions":["scenario"]},
+  {"id":"hand-inspector","title":"Hand Inspector","type":"WINDOW","entry":"examples/hand-inspector.lua","permissions":["hand_tracking"]},
+  {"id":"global-ui","title":"Global UI","type":"WINDOW","entry":"examples/global-ui.lua","permissions":["unsafe_execution"]},
+  {"id":"multi-window","title":"Multi Window","type":"WINDOW","entry":"examples/multi-window.lua","permissions":[]}
+]
