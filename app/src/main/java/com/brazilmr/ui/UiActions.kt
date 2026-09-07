@@ -14,6 +14,7 @@ interface UiActions {
     fun recenter()
     fun hideUi()
     fun openBuiltin(content: WindowContent)
+    fun launchOutside(app: LauncherApp) = Unit
     fun openAndroid(app: LauncherApp)
     fun runScript(app: ScriptApp)
     fun stopScripts()

@@ -62,7 +62,7 @@ object HeadsetLayout {
     const val STATUS=-3
     fun dock(p: PanelPose) = p.set(0f,-.48f,-1.65f,1.20f,.15f)
     fun menu(p: PanelPose) = p.set(0f,.075f,-1.65f,.82f,.82f)
-    fun clock(p: PanelPose) = p.set(.70f,.32f,-1.95f,.48f,.225f,-19f)
+    fun clock(p: PanelPose) = p.set(.70f,.52f,-1.95f,.48f,.225f,-19f)
     fun window(p: PanelPose,index: Int) {
         val column=index%3
         val x=when(column) {0 -> -.70f;1 -> .70f;else -> 0f}

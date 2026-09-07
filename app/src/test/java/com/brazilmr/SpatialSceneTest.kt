@@ -49,6 +49,16 @@ class SpatialSceneTest {
         assertTrue(index>=0);assertTrue(frame.panels.poses[index].width<1f)
         ui.openMenu(SpatialMenu.CLOSED);ui.prepare(frame);assertEquals(-1,frame.panels.indexOf(HeadsetLayout.MENU))
     }
+    @Test fun busyTextureSlotsKeepTheirInputTargetsAndRequestRetry() {
+        val state=PlatformState(context);val ui=SpatialUiScene(state,UiSceneTest.Actions());val frame=RenderFrame()
+        assertTrue(ui.prepare(frame))
+        val clock=state.windows.windows.first();val pixels=ui.pixels(clock.id)!!
+        val read=pixels.exchange.beginRead();assertTrue(read>=0)
+        state.dirty=true;assertTrue(ui.prepare(frame)) // the second slot becomes READY
+        state.dirty=true;assertFalse(ui.prepare(frame)) // GL owns one, producer owns the other
+        assertTrue(ui.targets.any { it.panelId==clock.id })
+        pixels.exchange.endRead(read);assertTrue(ui.prepare(frame))
+    }
     @Test fun captureAndReprojectionSnapshots() {
         val state=PlatformState(context);val ui=SpatialUiScene(state,UiSceneTest.Actions());val frame=RenderFrame()
         ui.prepare(frame);reference("headset-home",frame)

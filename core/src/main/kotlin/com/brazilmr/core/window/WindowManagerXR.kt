@@ -16,6 +16,7 @@ class XRWindow internal constructor(
     var minimized = false; internal set
     var focused = false; internal set
     var text = ""
+    var hasSurfaceFrame=false
     var displayId = -1
     var status = ""
     fun contains(px: Float, py: Float) = !minimized && px >= x && px <= x + width && py >= y && py <= y + height

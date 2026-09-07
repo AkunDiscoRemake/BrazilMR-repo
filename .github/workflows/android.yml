@@ -110,3 +110,42 @@ jobs:
               sha = json.loads(result.stdout)['sha']
               print(f'::notice title=Spatial reference::{name} {sha}')
           PY
+
+  headset-runtime:
+    name: GLES headset runtime smoke
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          profile: pixel_2
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          disable-animations: true
+          script: ./gradlew --no-daemon :app:connectedDebugAndroidTest
+      - name: Runtime reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: headset-runtime-reports
+          retention-days: 7
+          path: |
+            app/build/reports/androidTests/**
+            app/build/outputs/androidTest-results/**

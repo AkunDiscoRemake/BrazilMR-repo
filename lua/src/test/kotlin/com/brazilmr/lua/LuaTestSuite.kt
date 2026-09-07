@@ -187,6 +187,18 @@ fun main() {
         h.permissions.revokeAll(h.principal);h.runtime.emitPointer(.5f,.25f,"down","hand")
         check(h.host.logs.count { it=="pointer received" }==1)
     }
+    test("Lua: own spatial window pose is mutable without granting environment access") {
+        val h=Harness("""
+            zxr.window.place(-.7,.1,-2,18)
+            local p=zxr.window.get().pose
+            assert(math.abs(p.x+.7)<.001 and p.yaw==18)
+            zxr.window.distance(1.6)
+            zxr.window.scale(1.1)
+            assert(zxr.scenario==nil)
+        """.trimIndent())
+        h.success()
+        check(h.host.windows.get(h.window.id)!!.pose.z < -1)
+    }
     println("\nBrazil MR Lua: $passed passed, $failed failed")
     check(failed == 0) { "$failed Lua tests failed" }
 }

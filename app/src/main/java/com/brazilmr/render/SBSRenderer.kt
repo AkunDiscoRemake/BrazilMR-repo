@@ -71,6 +71,7 @@ class SBSRenderer(
     @Volatile private var cameraGeometry = CameraGeometry()
     private data class CameraGeometry(val width: Int = 640, val height: Int = 480, val rotation: Int = 0, val crop: Rect = Rect(0, 0, 640, 480))
 
+    var onAppFrame: ((Int)->Unit)?=null
     fun publish(next: RenderFrame) { synchronized(mailbox) { mailbox.copyFrom(next) } }
     fun readProjection(into: SpatialProjection) { synchronized(projectionLock) { into.copyFrom(lastProjection) } }
     fun readPanels(into: PanelSnapshot) { synchronized(projectionLock) { into.copyFrom(lastPanels) } }
@@ -113,8 +114,8 @@ class SBSRenderer(
             glBindFramebuffer(GL_FRAMEBUFFER,framebuffer);glDisable(GL_BLEND);glDepthMask(true)
             glClearColor(.014f,.010f,.025f,1f);glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
             if(frame.immersive) {
-                for(i in 0 until frame.panels.count) if(frame.panelVideo[i]>=0)appTextures[frame.panelVideo[i]]?.update()
-            } else for(i in 0 until frame.externalCount)appTextures[frame.externalIds[i]]?.update()
+                for(i in 0 until frame.panels.count) if(frame.panelVideo[i]>=0)updateAppTexture(frame.panelVideo[i])
+            } else for(i in 0 until frame.externalCount)updateAppTexture(frame.externalIds[i])
             for(eye in 0 until if(sbs)2 else 1) {
                 glViewport(eye*eyeWidth,0,eyeWidth,targetHeight);glDisable(GL_DEPTH_TEST);glDisable(GL_BLEND)
                 if(frame.camera && !frame.vr) {
@@ -153,6 +154,11 @@ class SBSRenderer(
             if(now-fpsTime>=1_000_000_000L) { if(fpsTime!=0L)fps=(count*1_000_000_000L/(now-fpsTime)).toInt();count=0;fpsTime=now }
             lastFrameMillis=(now-started)/1_000_000f
         } catch(error: Exception) { initialized=false;main.post { onError(error.message ?: "Falha no renderer") } }
+    }
+    private fun updateAppTexture(id: Int) {
+        val value=appTextures[id] ?: return
+        val hadFrame=value.hasImage;value.update()
+        if(!hadFrame && value.hasImage)main.post { onAppFrame?.invoke(id) }
     }
     private class PanelTexture(val id: Int,var uploaded: Boolean=false)
     private fun uploadPanels() {

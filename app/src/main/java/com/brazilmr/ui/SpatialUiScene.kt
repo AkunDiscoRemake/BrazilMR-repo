@@ -39,6 +39,7 @@ class SpatialUiScene(val state: PlatformState,private val actions: UiActions) {
     var gazeGrabbed=-1;private set
     private var grabDistance=1.8f;private var grabMoved=false;private var grabSince=0L
     private val grabInitial=FloatArray(3);private val grabLast=FloatArray(3)
+    private var pendingPaint=false
     private var page=0;private var settingsPage=0
     var onTargetsChanged: (() -> Unit)?=null
     fun openMenu(value: SpatialMenu) { menu=value;page=0;state.dirty=true }
@@ -47,11 +48,12 @@ class SpatialUiScene(val state: PlatformState,private val actions: UiActions) {
     fun activate(id: Int): Boolean { val t=target(id) ?: return false;if(t.kind!=HitKind.BUTTON)return false;t.action?.invoke();return true }
     fun pixels(id: Int)=buffers[id]
 
-    fun prepare(frame: RenderFrame) {
+    fun prepare(frame: RenderFrame): Boolean {
+        pendingPaint=false
         val dirty=state.dirty
         if(dirty) targets.clear()
         frame.panels.count=0
-        if(!state.session.uiVisible) { if(targets.isNotEmpty()){targets.clear();onTargetsChanged?.invoke()};return }
+        if(!state.session.uiVisible) { if(targets.isNotEmpty()){targets.clear();onTargetsChanged?.invoke()};return true }
         for(w in state.windows.windows) if(!w.minimized) {
             val h=if(w.content==WindowContent.CLOCK)240 else 384
             val buffer=buffer(w.id,512,h)
@@ -75,6 +77,7 @@ class SpatialUiScene(val state: PlatformState,private val actions: UiActions) {
             onTargetsChanged?.invoke()
         }
         for(i in frame.panels.count until frame.panelPixels.size)frame.panelPixels[i]=null
+        return !pendingPaint
     }
     private fun buffer(id: Int,w: Int,h: Int)=buffers.getOrPut(id) { SpatialPixels(w,h) }
     private fun append(frame: RenderFrame,id: Int,p: PanelPose,pixels: SpatialPixels,video: Int=-1) {
@@ -86,7 +89,7 @@ class SpatialUiScene(val state: PlatformState,private val actions: UiActions) {
         frame.panelPixels[index]=pixels.exchange;frame.panelVideo[index]=video
     }
     private fun draw(buffer: SpatialPixels,id: Int,body: () -> Unit) {
-        val slot=buffer.exchange.beginWrite();if(slot<0){targets.addAll(buffer.targets);return}
+        val slot=buffer.exchange.beginWrite();if(slot<0){pendingPaint=true;targets.addAll(buffer.targets);return}
         val start=targets.size
         try {
             canvas=buffer.canvases[slot];width=buffer.width.toFloat();height=buffer.height.toFloat();panelId=id
@@ -131,8 +134,13 @@ class SpatialUiScene(val state: PlatformState,private val actions: UiActions) {
                 }
             }
             WindowContent.ANDROID,WindowContent.CAPTURE -> {
-                if(w.displayId>=0 || (w.content==WindowContent.CAPTURE && state.captureActive)) canvas.drawColor(Color.TRANSPARENT,PorterDuff.Mode.CLEAR)
-                else paragraph(w.status.ifEmpty { "Aguardando o app…" },30f,114f,450f,25f,36f,5)
+                if(w.hasSurfaceFrame && (w.displayId>=0 || (w.content==WindowContent.CAPTURE && state.captureActive))) canvas.drawColor(Color.TRANSPARENT,PorterDuff.Mode.CLEAR)
+                else {
+                    paragraph(w.status.ifEmpty { "Aguardando o primeiro frame do app…" },30f,114f,450f,25f,36f,4)
+                    if(w.content==WindowContent.ANDROID && w.displayId<0)state.installedApps.firstOrNull { it.packageName==w.appId }?.let { app ->
+                        button("outside","Abrir fora do MR",26f,270f,455f,53f) { actions.launchOutside(app) }
+                    }
+                }
             }
             else -> Unit
         }
@@ -156,8 +164,8 @@ class SpatialUiScene(val state: PlatformState,private val actions: UiActions) {
         for(i in names.indices) {
             val x=15f+i*201
             if(hovered?.key=="${HeadsetLayout.DOCK}:dock$i") rect(x,10f,186f,108f,0xff332342.toInt(),28f)
-            text(glyphs[i],x+74,58f,40f,PURPLE)
-            text(names[i],x+25,98f,25f,WHITE,168f)
+            centerText(glyphs[i],x+93,58f,40f,PURPLE)
+            centerText(names[i],x+93,98f,25f,WHITE)
             hit("dock$i",names[i],RectF(x,7f,x+190,122f),action={
                 when(i) {0->openMenu(if(menu==SpatialMenu.APPS)SpatialMenu.CLOSED else SpatialMenu.APPS);1->openMenu(SpatialMenu.WINDOWS);2->actions.toggleMode();3->{actions.recenter();openMenu(SpatialMenu.CLOSED)};4->actions.hideUi()}
             })
@@ -372,6 +380,7 @@ class SpatialUiScene(val state: PlatformState,private val actions: UiActions) {
     private fun rect(x: Float,y: Float,w: Float,h: Float,color: Int,r: Float=12f) { paint.style=Paint.Style.FILL;paint.color=color;canvas.drawRoundRect(x,y,x+w,y+h,r,r,paint) }
     private fun stroke(x: Float,y: Float,w: Float,h: Float,color: Int,r: Float) { paint.style=Paint.Style.STROKE;paint.strokeWidth=2f;paint.color=color;canvas.drawRoundRect(x,y,x+w,y+h,r,r,paint);paint.style=Paint.Style.FILL }
     private fun line(x: Float,y: Float,a: Float,b: Float,color: Int) { paint.color=color;paint.strokeWidth=1.5f;canvas.drawLine(x,y,a,b,paint) }
+    private fun centerText(value: String,x: Float,y: Float,size: Float,color: Int) { paint.textSize=size;paint.typeface=font;val w=paint.measureText(value);text(value,x-w/2,y,size,color) }
     private fun text(value: String,x: Float,y: Float,size: Float,color: Int,maxWidth: Float=Float.MAX_VALUE) {
         paint.color=color;paint.textSize=size;paint.typeface=font;paint.style=Paint.Style.FILL
         val n=paint.breakText(value,true,maxWidth.coerceAtLeast(0f),null)

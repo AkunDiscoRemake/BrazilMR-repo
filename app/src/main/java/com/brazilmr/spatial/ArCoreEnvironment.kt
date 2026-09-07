@@ -37,6 +37,8 @@ class ArCoreEnvironment(
     private val originPosition = FloatArray(3)
     private val transformed = FloatArray(3)
     private val origin = Quaternion()
+    private var originAnchor: Anchor?=null
+    private val anchorRotation=FloatArray(4)
     private var centered = false
     @Volatile var active = false; private set
     @Synchronized fun start(activity: Activity): Boolean {
@@ -92,13 +94,19 @@ class ArCoreEnvironment(
                 pose.getRotationQuaternion(rotation, 0); pose.getTranslation(translation, 0)
                 if (!centered) {
                     val yaw=atan2(2*(rotation[0]*rotation[2]+rotation[3]*rotation[1]),1-2*(rotation[0]*rotation[0]+rotation[1]*rotation[1]))
-                    origin.set(0f,sin(yaw/2),0f,cos(yaw/2));translation.copyInto(originPosition);centered=true
+                    origin.set(0f,sin(yaw/2),0f,cos(yaw/2));translation.copyInto(originPosition)
+                    anchorRotation[0]=origin.x;anchorRotation[1]=origin.y;anchorRotation[2]=origin.z;anchorRotation[3]=origin.w
+                    originAnchor?.detach();originAnchor=current.createAnchor(Pose(originPosition,anchorRotation));centered=true
+                }
+                originAnchor?.takeIf { it.trackingState==TrackingState.TRACKING }?.pose?.let { anchored ->
+                    anchored.getTranslation(originPosition,0);anchored.getRotationQuaternion(anchorRotation,0)
+                    origin.set(anchorRotation[0],anchorRotation[1],anchorRotation[2],anchorRotation[3])
                 }
                 val x = rotation[0]; val y = rotation[1]; val z = rotation[2]; val w = rotation[3]
                 projection.orientation.set(origin.w*x-origin.x*w-origin.y*z+origin.z*y, origin.w*y+origin.x*z-origin.y*w-origin.z*x, origin.w*z-origin.x*y+origin.y*x-origin.z*w, origin.w*w+origin.x*x+origin.y*y+origin.z*z)
                 origin.rotate(translation[0]-originPosition[0], translation[1]-originPosition[1], translation[2]-originPosition[2], transformed, true)
                 projection.positionX = transformed[0]; projection.positionY = transformed[1]; projection.positionZ = transformed[2]
-                status("ARCore · 6DoF rastreado")
+                status("ARCore · 6DoF / âncora local")
             } else status("ARCore · relocalizando / ${camera.trackingFailureReason}")
             val now = System.nanoTime()
             if (hands.wantsArImage(now)) {
@@ -116,6 +124,7 @@ class ArCoreEnvironment(
     private fun status(message: String) { if (lastStatus != message) { lastStatus = message; onStatus(message) } }
     @Synchronized override fun close() {
         active = false
+        originAnchor?.detach();originAnchor=null
         session?.let { runCatching { it.pause() }; runCatching { it.close() } }
         session = null; lastTexture = -1; centered = false
     }

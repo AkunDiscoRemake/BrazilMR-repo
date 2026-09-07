@@ -134,7 +134,7 @@ class MainActivity : ComponentActivity(), UiActions {
                         val slot=textureExchange.beginWrite()
                         if(slot>=0) { try { scene.draw(uiCanvases[slot]);textureExchange.publish(slot);state.dirty=false } catch(e: Exception){textureExchange.cancelWrite(slot);throw e} }
                     }
-                } else { floating.prepare(renderFrame);state.dirty=false }
+                } else { state.dirty=!floating.prepare(renderFrame) }
                 renderer.publish(renderFrame); glView.requestRender()
             } catch (error: Exception) { state.log("Frame interrompido: ${error.message}"); input.reset(now) }
             previousUiMillis = (System.nanoTime()-begin)/1_000_000f
@@ -170,13 +170,14 @@ class MainActivity : ComponentActivity(), UiActions {
         },{
             if(!destroyed) {
                 appBridge.close(); endCapture("Contexto gráfico recriado; solicite novamente o compartilhamento.")
-                for (window in state.windows.windows) if(window.content == WindowContent.ANDROID) { window.displayId=-1;window.status="Contexto gráfico recriado. Reabra este app." }
+                for (window in state.windows.windows) if(window.content == WindowContent.ANDROID) { window.hasSurfaceFrame=false;window.displayId=-1;window.status="Contexto gráfico recriado. Reabra este app." }
                 state.dirty=true
             }
         },{ error ->
             graphicsReady=false
             if(!destroyed) showDialog(AlertDialog.Builder(this).setTitle("Renderer indisponível").setMessage("$error\n\nO aparelho precisa de OpenGL ES 2 com texturas externas OES.").setPositiveButton("Fechar") { _,_ -> finish() }.create())
         })
+        renderer.onAppFrame={ id -> state.windows.get(id)?.hasSurfaceFrame=true;state.dirty=true }
         glView.setRenderer(renderer); glView.renderMode=GLSurfaceView.RENDERMODE_WHEN_DIRTY
         camera = CameraController(this,this,hands,{ request -> renderer.provideCameraSurface(request) }) { active,detail ->
             state.cameraActive=active;state.dirty=true
@@ -413,6 +414,7 @@ class MainActivity : ComponentActivity(), UiActions {
             state.navigate(Page.HOME)
         }
     }
+    override fun launchOutside(app: LauncherApp) { if(!appBridge.launchOutside(app))state.notice("App indisponível",app.label) }
     override fun openAndroid(app: LauncherApp) {
         @Suppress("DEPRECATION")
         var type=if(runCatching { packageManager.getApplicationInfo(app.packageName,0).category==ApplicationInfo.CATEGORY_GAME }.getOrDefault(false)) AppType.GAME else AppType.WINDOW
@@ -608,5 +610,6 @@ class MainActivity : ComponentActivity(), UiActions {
         dialog.setOnDismissListener { nativeDialog=false;state.dirty=true;input.reset(System.nanoTime()/1_000_000) }
         dialog.show()
     }
+    fun hasRenderedFrameForDiagnostics(): Boolean = graphicsReady && renderer.fps>0
     private fun safeAction(action: () -> Unit) { try { action() } catch(error: Exception) { state.notice("Operação indisponível",error.message ?: "Tente novamente") } }
 }
