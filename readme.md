@@ -4,6 +4,14 @@
 
 > **Foundation 0.1 — não é uma release de produção.** Esta reconstrução parte de um repositório que continha apenas uma especificação. Há código nativo, núcleo testável, janelas, MediaPipe, renderização GLES/SBS e SDK Lua; compatibilidade de câmera, ARCore, headsets e apps externos requer validação em dispositivos reais. Não há promessa de executar qualquer app Android dentro de VR.
 
+## APK e validação
+
+**CI aprovada:** 29 testes Core + 18 Lua + 7 de UI/estado Android = **54 testes aprovados**, além de build debug e lint.
+
+[**Baixar APK debug**](https://github.com/AkunDiscoRemake/BrazilMR-repo/actions/runs/34126069326/artifacts/10020265297) · [Execução da CI](https://github.com/AkunDiscoRemake/BrazilMR-repo/actions/runs/34126069326) · [Escopo e limites da validação](docs/VALIDATION.md)
+
+O download contém o APK para testes. Artefatos ficam disponíveis por sete dias; depois, execute o workflow ou compile localmente. Câmera, gestos, ARCore, apps externos e desempenho térmico ainda precisam do protocolo de testes em aparelhos reais.
+
 ## Compilar
 
 Android Studio Ladybug ou mais recente, **JDK 17**, SDK Android **35**, acesso a Google Maven e Maven Central.
@@ -18,7 +26,7 @@ O build Android baixa o modelo Hand Landmarker oficial (7,8 MB), verifica SHA-25
 
 ```sh
 adb install -r app/build/outputs/apk/debug/app-debug.apk
-./gradlew :app:lintDebug
+./gradlew :app:testDebugUnitTest :app:lintDebug
 ./gradlew :app:connectedDebugAndroidTest  # aparelho/emulador conectado
 ```
 
