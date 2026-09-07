@@ -6,8 +6,10 @@ import android.graphics.Canvas
 import android.graphics.Color
 import androidx.test.core.app.ApplicationProvider
 import com.brazilmr.core.performance.XrSettings
+import com.brazilmr.bridge.AccessibilitySession
 import com.brazilmr.core.permission.Capability
 import com.brazilmr.core.window.WindowContent
+import com.brazilmr.core.window.AppType
 import com.brazilmr.platform.*
 import com.brazilmr.ui.*
 import org.junit.Assert.*
@@ -65,12 +67,34 @@ class UiSceneTest {
         val state=PlatformState(context);state.quickSettings=true
         val scene=XrUiScene(state,Actions());val bitmap=bitmap();scene.draw(Canvas(bitmap))
         assertTrue(scene.hitTest(950f,240f)?.key?.startsWith("quick.")==true)
+        assertTrue(scene.visibleTargets.all { it.key.startsWith("quick.") })
         bitmap.recycle()
     }
     @Test fun settingsRoundTripPreservesFilterAndRendererParameters() {
         val store=SettingsStore(context);val previous=store.read()
         val next=previous.copy(sbs=true,ipdMm=67f,uiDistance=2.3f,renderScale=.65f,trackingWidth=320)
         store.write(next);assertEquals(next,store.read());store.write(previous)
+    }
+    @Test fun accessibilitySessionRequiresConsentAndExactAppDisplayPair() {
+        AccessibilitySession.clear();AccessibilitySession.authorize(7,"app.example")
+        assertFalse(AccessibilitySession.permits(7,"app.example"))
+        AccessibilitySession.userConsented=true
+        assertTrue(AccessibilitySession.permits(7,"app.example"))
+        assertFalse(AccessibilitySession.permits(0,"app.example"))
+        assertFalse(AccessibilitySession.permits(7,"other.app"))
+        AccessibilitySession.remove(7);assertFalse(AccessibilitySession.permits(7,"app.example"))
+        AccessibilitySession.clear();assertFalse(AccessibilitySession.userConsented)
+    }
+    @Test fun developerDraftPersistsWithoutExecutionOrImplicitGrants() {
+        val state=PlatformState(context)
+        state.saveDeveloperDraft("print('saved draft')",AppType.GAME,setOf(Capability.SCENARIO))
+        val restored=PlatformState(context)
+        val draft=restored.scripts[restored.selectedScript]
+        assertEquals("print('saved draft')",draft.source)
+        assertEquals(AppType.GAME,draft.type)
+        assertFalse(restored.permissions.has(draft.principal,Capability.SCENARIO))
+        assertTrue(restored.windows.windows.none { it.content==WindowContent.LUA })
+        restored.sessionPrefs.edit().remove("draft.source").remove("draft.type").remove("draft.capabilities").commit()
     }
     private class Actions : UiActions {
         override fun requestCamera()=Unit

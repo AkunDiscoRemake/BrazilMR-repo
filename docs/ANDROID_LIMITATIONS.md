@@ -29,6 +29,7 @@ Em Android 10+, `ActivityManager.isActivityStartAllowedOnDisplay` é consultado.
 - Android 8–10: a plataforma não promete input em displays secundários.
 - Android pode negar ou cancelar o gesto. App incorreto, sem foco, janela ausente, coordenadas inválidas e ausência de autorização resultam em recusa, nunca numa tentativa cega na tela padrão.
 - A implementação envia clique/arrasto linear **ao soltar** o ponteiro, via dispatchGesture. Não é streaming de MotionEvent ou arrasto privilegiado sem latência. Press-and-hold é reproduzido com duração limitada; jogos que exigem multitouch/controles contínuos devem usar o SDK integrado ou controles próprios.
+- Barras/letterboxing não são tratados como conteúdo clicável. Mudanças incompatíveis de orientação/resolução são recusadas até resize/reabertura. Diálogos de permissão pertencentes ao sistema não recebem input dirigido ao pacote do app; use os ajustes oficiais Android.
 - Não se encaminham eventos do espelho MediaProjection a um display desconhecido.
 
 Publicação na Play Store exige declaração/revisão do uso de Accessibility conforme a política vigente. Este projeto não implica aprovação de loja.

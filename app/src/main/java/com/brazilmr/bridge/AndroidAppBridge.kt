@@ -19,7 +19,7 @@ sealed class AppLaunchResult {
 
 /** Official, private OWN_CONTENT_ONLY displays. Never asks for root, shell or hidden APIs. */
 class AndroidAppBridge(private val context: Context) : AutoCloseable {
-    private data class Entry(val app: LauncherApp, val display: VirtualDisplay, val surface: Surface)
+    private data class Entry(val app: LauncherApp, val display: VirtualDisplay, val surface: Surface, var width: Int, var height: Int)
     private val entries = HashMap<Int, Entry>()
     fun installedApps(): List<LauncherApp> {
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
@@ -45,7 +45,7 @@ class AndroidAppBridge(private val context: Context) : AutoCloseable {
             }
             val options = ActivityOptions.makeBasic().setLaunchDisplayId(displayId)
             context.startActivity(intent, options.toBundle())
-            entries[windowId] = Entry(app, display, surface)
+            entries[windowId] = Entry(app, display, surface, width, height)
             AccessibilitySession.authorize(displayId, app.packageName)
             AppLaunchResult.Display(displayId)
         } catch (error: Exception) {
@@ -57,10 +57,15 @@ class AndroidAppBridge(private val context: Context) : AutoCloseable {
     private fun launchIntent(app: LauncherApp) = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         .setComponent(ComponentName(app.packageName, app.className)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     fun setMinimized(windowId: Int, minimized: Boolean) { entries[windowId]?.let { it.display.surface = if (minimized) null else it.surface } }
-    fun resize(windowId: Int, width: Int, height: Int) { entries[windowId]?.display?.resize(width.coerceIn(320, 1920), height.coerceIn(240, 1080), 200) }
+    fun resize(windowId: Int, width: Int, height: Int) {
+        entries[windowId]?.let {
+            it.width=width.coerceIn(320,1920);it.height=height.coerceIn(240,1080)
+            it.display.resize(it.width,it.height,200)
+        }
+    }
     fun gesture(windowId: Int, startX: Float, startY: Float, endX: Float, endY: Float, durationMillis: Long): String? {
         val entry = entries[windowId] ?: return "Esta janela não possui um display interativo. Compartilhamento é somente leitura."
-        return AccessibilityBridgeService.connected?.gesture(entry.app.packageName, entry.display.display.displayId, startX, startY, endX, endY, durationMillis)
+        return AccessibilityBridgeService.connected?.gesture(entry.app.packageName, entry.display.display.displayId, startX, startY, endX, endY, durationMillis, entry.width, entry.height)
             ?: if (AccessibilityBridgeService.connected == null) "Ative a ponte de acessibilidade na Central de permissões." else null
     }
     fun close(windowId: Int) {

@@ -2,7 +2,9 @@ name: Android verification
 on:
   push:
     branches: [main, 'arena/**']
+    paths-ignore: ['docs/**', 'readme.md']
   pull_request:
+    paths-ignore: ['docs/**', 'readme.md']
   workflow_dispatch:
 permissions:
   contents: read
@@ -23,6 +25,8 @@ jobs:
           java-version: '17'
       - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
       - name: Install Android SDK
         run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'build-tools;34.0.0'
       - name: Core, Lua, debug APK and lint
@@ -41,6 +45,15 @@ jobs:
             done < <(grep -E '^e:|[Ee]rror:|^FAIL |Execution failed|Could not|^> (A failure|There|Could|Process)' verification.log | head -40)
           fi
           grep -E 'Brazil MR (Core|Lua):|[0-9]+ tests completed' verification.log | while IFS= read -r line; do printf '::notice::%s\n' "$line"; done || true
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          reports = list(Path('app/build/test-results/testDebugUnitTest').glob('TEST-*.xml'))
+          if reports:
+              suites = [ET.parse(path).getroot() for path in reports]
+              totals = {key: sum(int(suite.get(key, 0)) for suite in suites) for key in ['tests', 'failures', 'errors', 'skipped']}
+              print('::notice::Android JVM UI: ' + ', '.join(f'{value} {key}' for key, value in totals.items()))
+          PY
           exit "$result"
       - name: Verification reports
         if: always()

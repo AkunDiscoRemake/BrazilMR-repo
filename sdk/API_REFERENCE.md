@@ -1,6 +1,6 @@
 # Brazil MR Developer · API 0.1
 
-Lua 5.2 via LuaJ 3.0.1, com uma superfície restrita. Os exemplos em `sdk/examples` são incorporados ao app. Edite cópias no menu Developer; salvar não executa nem concede capabilities.
+Lua 5.2 via LuaJ 3.0.1, com uma superfície restrita. Os exemplos em `sdk/examples` são incorporados ao app. Edite cópias no menu Developer; salvar mantém um rascunho privado entre reinícios, mas não executa nem concede capabilities.
 
 ## Modelo de execução
 
@@ -107,7 +107,7 @@ SBS e modo VR são relacionados, mas não idênticos: MR também pode usar SBS; 
 
 ## zxr.scenario — capability scenario
 
-O namespace é `nil` sem permissão. Ao conceder, o host atualiza a tabela; os exemplos que criam objetos na inicialização devem ser reiniciados. Uma referência antiga continua sendo validada em cada chamada depois de revogação.
+O namespace é `nil` sem permissão. Ao conceder, o host atualiza a tabela; o evento `system.permissions` permite adaptar a cena. Orbit demonstra esse fluxo; scripts que só verificam permissões na inicialização devem ser reiniciados. Uma referência antiga continua sendo validada em cada chamada depois de revogação.
 
 ```lua
 if zxr.scenario then
@@ -128,6 +128,7 @@ end
 - `spatialStatus()` → descrição de disponibilidade/relocalização/3DoF/6DoF.
 - `hasPermission(name)` → boolean, não concede permissões.
 - `on("mode", callback)`, `on("spatial", callback)` → eventos de ambiente.
+- `on("permissions", callback)` → concessões/revogações deste principal foram atualizadas; consulte `hasPermission`.
 
 ## Segurança e quotas
 

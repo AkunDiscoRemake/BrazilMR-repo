@@ -19,6 +19,7 @@ fun interface InputSink { fun onPointer(event: PointerEvent) }
 class InputSystem(private val sink: InputSink) {
     private val event = PointerEvent()
     private var pinched = false
+    private var releaseRequired = false
     private var candidateSince = Long.MIN_VALUE
     private var releaseSince = Long.MIN_VALUE
     private var lastRelease = Long.MIN_VALUE
@@ -45,6 +46,10 @@ class InputSystem(private val sink: InputSink) {
         }
         cursorX = hand.x(8).coerceIn(0f, 1f); cursorY = hand.y(8).coerceIn(0f, 1f)
         emit(PointerAction.MOVE, InputSource.HAND, cursorX, cursorY, now)
+        if (releaseRequired) {
+            if (features.pinchRatio > 0.43f) releaseRequired = false
+            else { cursorState = if (hovered) CursorState.HOVER else CursorState.NORMAL; return }
+        }
         if (!pinched) {
             releaseSince = Long.MIN_VALUE
             if (features.pinchRatio < 0.28f && (lastRelease == Long.MIN_VALUE || now - lastRelease >= 250)) {
@@ -66,6 +71,7 @@ class InputSystem(private val sink: InputSink) {
         cursorState = if (pinched) CursorState.PRESSED else if (hovered) CursorState.HOVER else CursorState.NORMAL
     }
     fun cancelHand(time: Long) {
+        if (pinched || candidateSince != Long.MIN_VALUE) releaseRequired = true
         if (pinched) { emit(PointerAction.CANCEL, InputSource.HAND, cursorX, cursorY, time); lastRelease = time }
         pinched = false; candidateSince = Long.MIN_VALUE; releaseSince = Long.MIN_VALUE
         cursorState = CursorState.DISABLED

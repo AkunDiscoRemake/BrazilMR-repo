@@ -28,7 +28,7 @@ class AccessibilityBridgeService : AccessibilityService() {
     override fun onDestroy() { connected = null; AccessibilitySession.clear(); super.onDestroy() }
 
     /** Returns a denial reason, or null if Android accepted this user-generated click/drag. */
-    fun gesture(app: String, displayId: Int, x0: Float, y0: Float, x1: Float, y1: Float, duration: Long): String? {
+    fun gesture(app: String, displayId: Int, x0: Float, y0: Float, x1: Float, y1: Float, duration: Long, surfaceWidth: Int, surfaceHeight: Int): String? {
         if (!AccessibilitySession.permits(displayId, app)) return "Controle não autorizado nesta sessão."
         if (busy) return "Aguarde o gesto anterior terminar."
         if (Build.VERSION.SDK_INT < 30 && displayId != Display.DEFAULT_DISPLAY) return "Input em displays secundários requer Android 11+."
@@ -44,9 +44,17 @@ class AccessibilityBridgeService : AccessibilityService() {
         }
         val target = bounds ?: return "O app autorizado não está focado no display de destino. Nenhum input foi injetado."
         if (target.isEmpty) return "Conteúdo do app indisponível."
+        val size = android.graphics.Point()
+        val display = getSystemService(android.hardware.display.DisplayManager::class.java).getDisplay(displayId)
+            ?: return "Display de destino indisponível."
+        @Suppress("DEPRECATION") display.getRealSize(size)
+        if (size.x != surfaceWidth || size.y != surfaceHeight) return "Orientação/resolução do display mudou; redimensione ou reabra o app."
+        val startX=x0*(surfaceWidth-1);val startY=y0*(surfaceHeight-1)
+        val endX=x1*(surfaceWidth-1);val endY=y1*(surfaceHeight-1)
+        if (!target.contains(startX.toInt(),startY.toInt()) || !target.contains(endX.toInt(),endY.toInt())) return "Ponteiro sobre barras ou fora do conteúdo do app."
         val path = Path().apply {
-            moveTo(target.left + x0 * (target.width()-1), target.top + y0 * (target.height()-1))
-            if (x0 != x1 || y0 != y1) lineTo(target.left + x1 * (target.width()-1), target.top + y1 * (target.height()-1))
+            moveTo(startX,startY)
+            if (x0 != x1 || y0 != y1) lineTo(endX,endY)
         }
         val builder = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, duration.coerceIn(1, 1500)))
         if (Build.VERSION.SDK_INT >= 30) builder.setDisplayId(displayId)

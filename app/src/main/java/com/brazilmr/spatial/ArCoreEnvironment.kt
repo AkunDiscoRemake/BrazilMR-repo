@@ -24,6 +24,9 @@ class ArCoreEnvironment(
     private var session: Session? = null
     private var installRequested = false
     private var lastTexture = -1
+    private var geometryWidth = 0
+    private var geometryHeight = 0
+    private var geometryRotation = -1
     private var lastStatus = ""
     private var sensorOrientation = 90
     private val ndc = buffer(floatArrayOf(-1f, 1f, 1f, 1f, -1f, -1f, 1f, -1f))
@@ -55,10 +58,11 @@ class ArCoreEnvironment(
                 next.configure(config)
                 sensorOrientation = context.getSystemService(CameraManager::class.java)
                     .getCameraCharacteristics(next.cameraConfig.cameraId).get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
-                next.resume(); session = next; lastTexture = -1; centered = false; active = true
+                next.resume(); session = next; lastTexture = -1; geometryRotation = -1; centered = false; active = true
                 status("ARCore · inicializando tracking espacial"); true
             } catch (error: Exception) { next.close(); throw error }
-        } catch (error: Exception) { status("ARCore indisponível · ${error.message ?: "fallback 3DoF"}"); false }
+        } catch (error: LinkageError) { status("ARCore sem biblioteca compatível · fallback 3DoF"); false }
+        catch (error: Exception) { status("ARCore indisponível · ${error.message ?: "fallback 3DoF"}"); false }
     }
     @Synchronized fun recenter() { centered = false }
     /** Runs on GL thread; returns transformed passthrough UVs and a genuine camera pose when tracked. */
@@ -67,7 +71,10 @@ class ArCoreEnvironment(
         if (!active) return false
         return try {
             if (lastTexture != texture) { current.setCameraTextureName(texture); lastTexture = texture }
-            current.setDisplayGeometry(displayRotation, width, height)
+            if (displayRotation != geometryRotation || width != geometryWidth || height != geometryHeight) {
+                current.setDisplayGeometry(displayRotation, width, height)
+                geometryWidth = width; geometryHeight = height; geometryRotation = displayRotation
+            }
             val frame = current.update()
             ndc.position(0); uv.position(0)
             frame.transformCoordinates2d(Coordinates2d.OPENGL_NORMALIZED_DEVICE_COORDINATES, ndc, Coordinates2d.TEXTURE_NORMALIZED, uv)

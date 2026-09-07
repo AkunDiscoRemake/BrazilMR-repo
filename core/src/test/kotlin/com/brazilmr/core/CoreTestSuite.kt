@@ -259,6 +259,27 @@ fun main() {
         check(!p.rayToUi(.5f,.5f,0,uv));check(uv[0].isNaN())
         check(!p.rayToUi(Float.NaN,0f,0,uv))
     }
+    test("Plugin: a faulty stop does not prevent revocation of other plugins") {
+        val p=PermissionManager();val system=PluginSystem(p);var stopped=false
+        fun plugin(id: String, failing: Boolean) = object : XrPlugin {
+            override val manifest=PluginManifest(id,"1",PluginKind.API,setOf(Capability.SCENARIO))
+            override fun start(context: PluginContext)=Unit
+            override fun stop() { if(failing) error("faulty plugin");stopped=true }
+        }
+        val a=system.register(plugin("a",true));val b=system.register(plugin("b",false))
+        for(principal in listOf(a,b)) p.decideFromUser(principal,Capability.SCENARIO,true)
+        system.enable("a");system.enable("b");p.revokeAll(a);p.revokeAll(b);system.enforceRevocations()
+        check(stopped && system.lastError!=null)
+    }
+    test("Input: cancelled pinch must open before a new click after touch takeover") {
+        var handDowns=0;val input=InputSystem { if(it.source==InputSource.HAND && it.action==PointerAction.DOWN) handDowns++ }
+        val h=hand();val f=features(base=false).apply { pinchRatio=.1f }
+        input.hand(h,f,false,0);input.hand(h,f,false,70);check(handDowns==1)
+        input.touch(PointerAction.DOWN,.5f,.5f,100);input.touch(PointerAction.UP,.5f,.5f,150)
+        input.hand(h,f,false,1000);input.hand(h,f,false,1100);check(handDowns==1)
+        f.pinchRatio=.6f;input.hand(h,f,false,1200)
+        f.pinchRatio=.1f;input.hand(h,f,false,1300);input.hand(h,f,false,1370);check(handDowns==2)
+    }
     println("\nBrazil MR Core: $passed passed, $failed failed")
     check(failed == 0) { "$failed core tests failed" }
 }

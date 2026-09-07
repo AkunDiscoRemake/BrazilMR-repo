@@ -42,6 +42,9 @@ class CameraHandTrackingManager(
                 if (backend == null) backend = MediaPipeBackend(context)
                 cadence.reset()
                 updateStatus(TrackingStatus.RUNNING, "MediaPipe · pronto")
+            } catch (error: LinkageError) {
+                enabled = false; mailbox.clear()
+                updateStatus(TrackingStatus.UNAVAILABLE, "Biblioteca MediaPipe indisponível nesta ABI: ${error.message}")
             } catch (error: Exception) { updateStatus(TrackingStatus.ERROR, error.message ?: "MediaPipe indisponível") }
         }
     }

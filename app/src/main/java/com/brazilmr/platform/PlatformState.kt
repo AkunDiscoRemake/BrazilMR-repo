@@ -74,8 +74,32 @@ class PlatformState(context: Context) {
             val script = ScriptApp(j.getString("id"), j.getString("title"), AppType.valueOf(j.getString("type")), context.assets.open(j.getString("entry")).bufferedReader().use { it.readText() }, requested)
             scripts.add(script); permissions.register(script.principal, requested)
         }
-        developerSource = scripts.first().source
+        runCatching {
+            sessionPrefs.getString("draft.source", null)?.let { source ->
+                require(source.toByteArray(Charsets.UTF_8).size <= 65536)
+                val type = AppType.valueOf(sessionPrefs.getString("draft.type", "WINDOW")!!)
+                val requested = sessionPrefs.getString("draft.capabilities", "")!!.split(',')
+                    .mapNotNull { name -> Capability.entries.firstOrNull { it.name == name } }.toSet()
+                val draft = ScriptApp("developer.local", "Meu experimento", type, source, requested)
+                scripts.add(draft); permissions.register(draft.principal, requested)
+                selectedScript = scripts.lastIndex
+            }
+        }.onFailure { notice("Rascunho indisponível", "O rascunho salvo não pôde ser restaurado. Nenhum código foi executado.") }
+        developerSource = scripts[selectedScript].source
+        developerType = scripts[selectedScript].type
         notice("Bem-vindo ao seu espaço", "Câmera e integrações são opcionais. Você decide o que o Brazil MR pode acessar.")
+    }
+    fun saveDeveloperDraft(source: String, type: AppType, requested: Set<Capability>) {
+        require(source.toByteArray(Charsets.UTF_8).size <= 65536) { "Limite de 64 KiB de código" }
+        val draft = ScriptApp("developer.local", "Meu experimento", type, source, requested.toSet())
+        val existing = scripts.indexOfFirst { it.id == draft.id }
+        if (existing < 0) { scripts.add(draft); selectedScript = scripts.lastIndex }
+        else { scripts[existing] = draft; selectedScript = existing }
+        permissions.register(draft.principal, draft.requested)
+        developerSource = source; developerType = type
+        sessionPrefs.edit().putString("draft.source", source).putString("draft.type", type.name)
+            .putString("draft.capabilities", requested.joinToString(",") { it.name }).apply()
+        dirty = true
     }
     fun notice(title: String, message: String) {
         if (notices.size >= 50) notices.removeAt(notices.lastIndex)

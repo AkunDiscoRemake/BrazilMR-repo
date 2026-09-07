@@ -17,6 +17,7 @@ class PluginContext internal constructor(val principal: Principal, private val p
 class PluginSystem(private val permissions: PermissionManager) : AutoCloseable {
     private data class Entry(val plugin: XrPlugin, val principal: Principal, var active: Boolean = false)
     private val entries = LinkedHashMap<String, Entry>()
+    var lastError: String? = null; private set
     fun register(plugin: XrPlugin): Principal {
         val manifest = plugin.manifest
         require(manifest.id.matches(Regex("[A-Za-z0-9._-]{1,64}")))
@@ -36,7 +37,10 @@ class PluginSystem(private val permissions: PermissionManager) : AutoCloseable {
     }
     fun disable(id: String) {
         val entry = entries[id] ?: return
-        if (entry.active) { entry.active = false; entry.plugin.stop() }
+        if (entry.active) {
+            entry.active = false
+            try { entry.plugin.stop() } catch (error: Exception) { lastError = "$id: ${error.message}" }
+        }
     }
     /** Call after a grant changes. Active plugins lose execution as well as host API access. */
     fun enforceRevocations() {

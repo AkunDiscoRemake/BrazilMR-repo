@@ -138,7 +138,7 @@ class MainActivity : ComponentActivity(), UiActions {
         hands = CameraHandTrackingManager(applicationContext) { status,detail -> handler.post {
             if (!destroyed) {
                 state.trackingStatus = detail; state.dirty = true
-                if (status in listOf(TrackingStatus.ERROR,TrackingStatus.NO_MODEL) && lastTrackingMessage != detail) { state.notice("Hand tracking",detail); lastTrackingMessage = detail }
+                if (status in listOf(TrackingStatus.ERROR,TrackingStatus.NO_MODEL,TrackingStatus.UNAVAILABLE) && lastTrackingMessage != detail) { state.notice("Hand tracking",detail); lastTrackingMessage = detail }
             }
         } }
         hands.configuration = state.settings
@@ -296,7 +296,7 @@ class MainActivity : ComponentActivity(), UiActions {
         p.positionX=0f;p.positionY=0f;p.positionZ=0f;head.readInto(p)
         renderFrame.vr=state.session.mode==EnvironmentMode.VR
         renderFrame.camera=state.cameraActive && s.passthrough;renderFrame.mirror=s.frontCamera
-        renderFrame.opacity=s.uiOpacity;renderFrame.scale=budget.renderScale;renderFrame.maxWidth=s.renderWidth;renderFrame.displayRotation=displayRotation()
+        renderFrame.opacity=s.uiOpacity;renderFrame.scale=budget.renderScale;renderFrame.maxWidth=s.renderWidth;renderFrame.displayRotation=head.displayRotation
         renderFrame.cursorVisible=input.cursorState!=CursorState.DISABLED && state.session.uiVisible && !nativeDialog
         if(renderFrame.cursorVisible) {
             renderer.readProjection(inputProjection)
@@ -402,10 +402,8 @@ class MainActivity : ComponentActivity(), UiActions {
         val scroll=ScrollView(this).apply { addView(code) };layout.addView(scroll,LinearLayout.LayoutParams(-1,340))
         showDialog(AlertDialog.Builder(this).setTitle("Brazil MR · editor Lua").setView(layout).setNegativeButton("Cancelar",null).setPositiveButton("Salvar rascunho") { _,_ -> safeAction {
             val source=code.text.toString();require(source.toByteArray(Charsets.UTF_8).size<=65536) { "Limite de 64 KiB de código" }
-            val draft=ScriptApp("developer.local","Meu experimento",if(type.selectedItemPosition==1)AppType.GAME else AppType.WINDOW,source,Capability.entries.filterIndexed { index,_ -> checks[index].isChecked }.toSet())
-            var index=state.scripts.indexOfFirst { it.id==draft.id }
-            if(index<0) { state.scripts.add(draft);index=state.scripts.lastIndex } else state.scripts[index]=draft
-            state.permissions.register(draft.principal,draft.requested);selectScript(index)
+            state.saveDeveloperDraft(source,if(type.selectedItemPosition==1)AppType.GAME else AppType.WINDOW,Capability.entries.filterIndexed { index,_ -> checks[index].isChecked }.toSet())
+            val draft=state.scripts[state.selectedScript]
             state.notice("Rascunho salvo", "Hash ${draft.principal.id.substringAfter('@').take(12)}. Permissões precisam de consentimento na Central.")
         } }.create())
     }

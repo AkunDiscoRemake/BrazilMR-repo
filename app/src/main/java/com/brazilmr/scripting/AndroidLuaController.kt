@@ -107,7 +107,7 @@ class AndroidLuaController(
     }
     fun modeChanged(mode: String) { for (slot in slots.values) submit { if (!slot.cancelled) slot.runtime?.emit("system.mode",mode) } }
     fun permissionsChanged(principal: Principal) {
-        for (slot in slots.values) if (slot.app.principal == principal) submit { slot.runtime?.refreshCapabilities() }
+        for (slot in slots.values) if (slot.app.principal == principal) submit { slot.runtime?.refreshCapabilities(); slot.runtime?.emit("system.permissions") }
     }
     /** Caller throttles to 10 Hz; minimized windows and a hidden UI do not receive simulation ticks. */
     fun tick(seconds: Double) {

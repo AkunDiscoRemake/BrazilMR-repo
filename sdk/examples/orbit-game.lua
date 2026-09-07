@@ -9,11 +9,20 @@ zxr.ui.on(target, "click", function()
     zxr.ui.set(label, {text = "Pontuação: " .. score})
     zxr.ui.move(target, .1 + (score % 3) * .12, .4 + (score % 2) * .12)
 end)
-if zxr.system.hasPermission("scenario") then
-    local object = zxr.scenario.spawn {x=0, y=.75, z=-2, size=.13, color="#B18AFF"}
-    zxr.game.on("update", function(time)
-        zxr.scenario.move(object, math.sin(time) * .45, .75, -2)
-    end)
-else
-    print("scenario não concedida: jogo continua dentro da janela.")
+local object = nil
+local function updateScenarioPermission()
+    if object and zxr.scenario then zxr.scenario.remove(object) end
+    object = nil
+    if zxr.system.hasPermission("scenario") and zxr.scenario then
+        object = zxr.scenario.spawn {x=0, y=.75, z=-2, size=.13, color="#B18AFF"}
+    else
+        print("scenario não concedida: jogo continua dentro da janela.")
+    end
 end
+updateScenarioPermission()
+zxr.system.on("permissions", updateScenarioPermission)
+zxr.game.on("update", function(time)
+    if object and zxr.scenario and zxr.system.hasPermission("scenario") then
+        zxr.scenario.move(object, math.sin(time) * .45, .75, -2)
+    end
+end)

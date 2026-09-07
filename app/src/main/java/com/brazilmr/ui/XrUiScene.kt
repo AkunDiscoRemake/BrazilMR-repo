@@ -418,6 +418,7 @@ class XrUiScene(val state: PlatformState, private val actions: UiActions) {
         }
     }
     private fun quickSettings() {
+        targets.clear() // Modal: underlying controls must also disappear from the accessibility tree.
         panel(215f, 135f, 1353f, 673f, 0f, 0x88000000.toInt())
         hit("quick.dismiss", "Fechar ajustes rápidos", 215f, 135f, 1353f, 673f) { state.quickSettings = false; state.dirty = true }
         panel(942f, 148f, 614f, 646f, 23f, 0xff1a1525.toInt(), 0xff584071.toInt())
